@@ -1,9 +1,71 @@
-use bevy::{math::VectorSpace, prelude::*};
+use bevy::prelude::*;
 use smooth_bevy_cameras::controllers::unreal::{UnrealCameraBundle, UnrealCameraController};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use crate::config::{axis_config, colors_config, cam_config};
+use crate::config::{origin_config, colors_config, cam_config, lights_config};
+
+
+//////////////////////////////////////////////////
+/// LIGHTING
+//////////////////////////////////////////////////
+pub struct CustomLightsPlugin;
+impl Plugin for CustomLightsPlugin {
+
+    fn build(&self, app: &mut App) {
+        app.insert_resource(ClearColor(colors_config::get_color(lights_config::BG_COLOR)));
+        app.add_systems(Startup, Self::create_light);
+    }
+}
+
+impl CustomLightsPlugin {
+    fn create_light(mut commands: Commands, mut gizmo_store: ResMut<GizmoConfigStore>) {
+        // Light
+        let point_light_bundle_1 = SpotLightBundle {
+            spot_light: SpotLight {
+                shadows_enabled: true,
+                shadow_depth_bias: 0.3,
+                intensity: 20_000_000.,
+                range: 50.,
+                color: Color::Srgba(Srgba::WHITE),
+                ..default()
+            },
+            transform: Transform::from_translation(lights_config::POS_1).looking_at(lights_config::LOOKING_AT_1, Vec3::Y),
+            ..default()
+        };
+    
+        // Second light
+        let point_light_bundle_2 = SpotLightBundle {
+            spot_light: SpotLight {
+                shadows_enabled: true,
+                shadow_depth_bias: 0.3,
+                intensity: 20_000_000.,
+                range: 50.,
+                color: Color::Srgba(Srgba::WHITE),
+                ..default()
+            },
+            transform: Transform::from_translation(lights_config::POS_2).looking_at(lights_config::LOOKING_AT_2, Vec3::Y),
+            ..default()
+        };
+    
+        // Light spawn
+        commands.spawn(point_light_bundle_1);
+        commands.spawn(point_light_bundle_2);
+    
+        // Gimzo config
+        if lights_config::GIZMOS_ON
+        {
+            let (_, light_config) = gizmo_store.config_mut::<LightGizmoConfigGroup>();
+            light_config.draw_all = true;
+            light_config.color = LightGizmoColor::Varied;
+        }
+    }
+}
+
+
+//////////////////////////////////////////////////
+/// ORIGIN
+//////////////////////////////////////////////////
 
 #[derive(EnumIter)]
 enum Axis {
@@ -12,171 +74,114 @@ enum Axis {
     Z,
 }
 
-//////////////////////////////////////////////////
-/// SCENE, ENVIRONMENT, SETUP
-//////////////////////////////////////////////////
-
-/// Setup scene / environment
-pub fn setup(
-    mut commands: Commands,
-    mut config_store: ResMut<GizmoConfigStore>,
-    mut _meshes: ResMut<Assets<Mesh>>,
-    mut _materials: ResMut<Assets<StandardMaterial>>,
-) {
-    create_light(&mut commands, &mut config_store);
-    create_cameras(&mut commands);
-    // create_ground(&mut commands,&mut meshes, &mut materials);
+pub struct OriginPlugin;
+impl Plugin for OriginPlugin {
+    fn build(&self,app: &mut App){
+        app.add_systems(Startup, Self::draw_origin);
+    }
 }
 
-pub fn draw_xyz(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // Origin
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(
-            Sphere {
-                radius: axis_config::ORIGIN_SPHERE_RADIUS,
+impl OriginPlugin {
+    /// Draw the origin and xyz axes
+    pub fn draw_origin(
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
+    ) {
+        // Origin
+        commands.spawn(PbrBundle {
+            mesh: meshes.add(
+                Sphere {
+                    radius: origin_config::ORIGIN_SPHERE_RADIUS,
+                }
+                .mesh()
+                .uv(32, 18),
+            ),
+            material: materials.add(Color::WHITE),
+            transform: Transform::from_translation(Vec3::ZERO),
+            ..default()
+        });
+    
+        for variant in Axis::iter() {
+            commands.spawn(Self::create_axis(variant, &mut meshes, &mut materials));
+        }
+    }
+
+    /// Helper function to generate the xyz axes in each direction
+    fn create_axis(
+        direction: Axis,
+        meshes: &mut ResMut<Assets<Mesh>>,
+        materials: &mut ResMut<Assets<StandardMaterial>>,
+    ) -> PbrBundle {
+        let cuboid_dim: Vec3;
+        let adjusted_position: Vec3;
+        let color: Color;
+
+        const LENGTH: f32 = origin_config::AXIS_LENGTH;
+        const GIRTH: f32 = origin_config::AXIS_GIRTH;
+        const HALF_LENGTH : f32 = LENGTH * 0.5;
+
+        match direction {
+            Axis::X => {
+                cuboid_dim = Vec3::new(LENGTH, GIRTH, GIRTH);
+                adjusted_position = Vec3::new(HALF_LENGTH, 0., 0.);
+                color = origin_config::COLOR_X;
             }
-            .mesh()
-            .uv(32, 18),
-        ),
-        material: materials.add(Color::WHITE),
-        transform: Transform::from_translation(Vec3::ZERO),
-        ..default()
-    });
-
-    for variant in Axis::iter() {
-        commands.spawn(create_axis(variant, &mut meshes, &mut materials));
-    }
-}
-
-// TODO: you should make the draw axes stuff into a a plugin
-/// Create an x,y,z axis in the scene
-fn create_axis(
-    direction: Axis,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-) -> PbrBundle {
-    let cuboid_dim: Vec3;
-    let adjusted_position: Vec3;
-    let color: Color;
-
-    const LENGTH: f32 = axis_config::HALF_LENGTH;
-    const GIRTH: f32 = axis_config::GIRTH;
-
-    match direction {
-        Axis::X => {
-            cuboid_dim = Vec3::new(LENGTH, GIRTH, GIRTH);
-            adjusted_position = Vec3::new(LENGTH / 2., 0., 0.);
-            color = colors_config::RED;
+            Axis::Y => {
+                cuboid_dim = Vec3::new(GIRTH, LENGTH, GIRTH);
+                adjusted_position = Vec3::new(0., HALF_LENGTH, 0.);
+                color =origin_config::COLOR_Y;
+            }
+            Axis::Z => {
+                cuboid_dim = Vec3::new(GIRTH, GIRTH, LENGTH);
+                adjusted_position = Vec3::new(0., 0., HALF_LENGTH);
+                color = origin_config::COLOR_Z;
+            }
         }
-        Axis::Y => {
-            cuboid_dim = Vec3::new(GIRTH, LENGTH, GIRTH);
-            adjusted_position = Vec3::new(0., LENGTH / 2., 0.);
-            color = colors_config::GREEN
-        }
-        Axis::Z => {
-            cuboid_dim = Vec3::new(GIRTH, GIRTH, LENGTH);
-            adjusted_position = Vec3::new(0., 0., LENGTH / 2.);
-            color = colors_config::BLUE;
-        }
-    }
 
-    PbrBundle {
-        mesh: meshes.add(Cuboid::from_size(cuboid_dim)),
-        material: materials.add(color),
-        transform: Transform::from_translation(adjusted_position),
-        ..default()
+        PbrBundle {
+            mesh: meshes.add(Cuboid::from_size(cuboid_dim)),
+            material: materials.add(color),
+            transform: Transform::from_translation(adjusted_position),
+            ..default()
+        }
     }
 }
 
 //////////////////////////////////////////////////
 /// CAMERAS
 //////////////////////////////////////////////////
-
-#[derive(Component)]
-struct MyCamera;
-
-/// Create the unreal engine camera object in the scene
-fn create_cameras(commands: &mut Commands) {
-    const STARTING_CAM_POS: Vec3 = cam_config::POS;
-    let target = Vec3::ZERO;
-    println!("Camera is starting at {} and pointing at {}", target, STARTING_CAM_POS);
-    
-    let bevy_camera = Camera3dBundle {
-        projection: PerspectiveProjection { ..default() }.into(),
-        // looking at is how to orient
-        // y is up in bevy
-        transform: Transform::from_translation(STARTING_CAM_POS).looking_at(target, Vec3::Y),
-        ..default()
-    };
-
-    let unreal_camera = UnrealCameraBundle::new(
-        UnrealCameraController::default(),
-        STARTING_CAM_POS,
-        Vec3::new(0., 0., 0.),
-        Vec3::Y,
-    );
-
-    commands
-        .spawn((MyCamera, bevy_camera))
-        .insert(unreal_camera);
+pub struct CustomCameraPlugin;
+impl Plugin for CustomCameraPlugin{
+    fn build(&self, app: &mut App)
+    {
+        app.add_systems(Startup, Self::create_camera);
+    }
 }
 
-//////////////////////////////////////////////////
-/// LIGHTING
-//////////////////////////////////////////////////
+impl CustomCameraPlugin {
+    /// Create the unreal engine camera object in the scene
+    fn create_camera(mut commands: Commands) {
+        const STARTING_CAM_POS: Vec3 = cam_config::POS;
+        const TARGET: Vec3 = cam_config::LOOKING_AT;
 
-// #[derive(Component)]
-// struct MyLight;
-
-/// Create a light in the scene
-fn create_light(commands: &mut Commands, gizmo_store: &mut ResMut<GizmoConfigStore>) {
-    // Light
-    //TODO: lights are confusing me, they are working backwards as i would expect them to.
-    // like placing the light at all postivies values and spawning the camera there, looking at the cube
-    // everything is in a shadow.
-    let point_light_bundle_1 = SpotLightBundle {
-        spot_light: SpotLight {
-            shadows_enabled: true,
-            shadow_depth_bias: 0.3,
-            intensity: 20_000_000.,
-            range: 50.,
-            color: Color::Srgba(Srgba::WHITE),
+        println!("Camera is starting at {} and pointing at {}", TARGET, STARTING_CAM_POS);
+        
+        let bevy_camera = Camera3dBundle {
+            projection: PerspectiveProjection { ..default() }.into(),
+            // looking at is how to orient
+            // y is up in bevy
+            transform: Transform::from_translation(STARTING_CAM_POS).looking_at(TARGET, Vec3::Y),
             ..default()
-        },
-        // transform: Transform::from_translation(lights_config::POS),
-        transform: Transform::from_translation(
-            Vec3::splat(20.0)
-        ).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    };
+        };
 
-    // Second light
-    let point_light_bundle_2 = SpotLightBundle {
-        spot_light: SpotLight {
-            shadows_enabled: true,
-            shadow_depth_bias: 0.3,
-            intensity: 20_000_000.,
-            range: 50.,
-            color: Color::Srgba(Srgba::WHITE),
-            ..default()
-        },
-        // transform: Transform::from_translation(lights_config::POS_2),
-        transform: Transform::from_translation(
-            Vec3::splat(-20.0)
-        ).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    };
+        let unreal_camera = UnrealCameraBundle::new(
+            UnrealCameraController::default(),
+            STARTING_CAM_POS,
+            Vec3::new(0., 0., 0.),
+            Vec3::Y,
+        );
 
-    // Light spawn
-    commands.spawn(point_light_bundle_1);
-    commands.spawn(point_light_bundle_2);
-
-    // Gimzo config
-    let (_, light_config) = gizmo_store.config_mut::<LightGizmoConfigGroup>();
-    light_config.draw_all = true;
-    light_config.color = LightGizmoColor::Varied;
+        commands.spawn(bevy_camera).insert(unreal_camera);
+    }
 }
