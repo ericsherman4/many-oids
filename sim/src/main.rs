@@ -5,7 +5,8 @@ use smooth_bevy_cameras::controllers::unreal::UnrealCameraPlugin;
 use smooth_bevy_cameras::LookTransformPlugin;
 
 mod config;
-use config::scene;
+use config::colors_config;
+mod scene;
 
 fn main() {
     App::new()
@@ -16,7 +17,10 @@ fn main() {
             UnrealCameraPlugin::default(),
         ))
 
-        .insert_resource(ClearColor(scene::get_color(scene::BG_COLOR)))
+        .insert_resource(ClearColor(colors_config::get_color(config::colors_config::BG_COLOR)))
+
+        .add_systems(Startup, scene::setup)
+        .add_systems(Startup, scene::draw_xyz)
 
         .run();
 
