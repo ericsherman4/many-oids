@@ -6,7 +6,7 @@ mod scene;
 
 fn main() {
     App::new()
-        // bevy's entire engine is written as plugins so maybe your stuff should be too? 
+        // bevy's entire engine is written as plugins so maybe your stuff should be too?
         .add_plugins((
             DefaultPlugins,
             LookTransformPlugin,
@@ -15,6 +15,5 @@ fn main() {
             scene::OriginPlugin,
             scene::CustomCameraPlugin,
         ))
-
         .run();
 }

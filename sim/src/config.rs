@@ -1,4 +1,3 @@
-
 /// Scene settings
 pub mod colors_config {
     use bevy::prelude::Color;
@@ -16,7 +15,7 @@ pub mod colors_config {
 
 pub mod lights_config {
     use bevy::math::Vec3;
-    
+
     pub const BG_COLOR: &str = "000000";
     pub const GIZMOS_ON: bool = false;
 
@@ -28,7 +27,6 @@ pub mod lights_config {
     pub const POS_2: Vec3 = Vec3::splat(-7.0);
     pub const LOOKING_AT_2: Vec3 = Vec3::ZERO;
 }
-
 
 pub mod origin_config {
     use bevy::prelude::Color;
@@ -46,5 +44,5 @@ pub mod origin_config {
 pub mod cam_config {
     use bevy::math::Vec3;
     pub const POS: Vec3 = Vec3::splat(7.0);
-    pub const LOOKING_AT:Vec3 = Vec3::ZERO;
+    pub const LOOKING_AT: Vec3 = Vec3::ZERO;
 }
