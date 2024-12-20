@@ -3,6 +3,7 @@ use smooth_bevy_cameras::{controllers::unreal::UnrealCameraPlugin, LookTransform
 
 mod config;
 mod scene;
+mod animation;
 
 fn main() {
     App::new()
@@ -14,6 +15,7 @@ fn main() {
             scene::CustomLightsPlugin,
             scene::OriginPlugin,
             scene::CustomCameraPlugin,
+            animation::HypocycloidTest,
         ))
         .run();
 }
