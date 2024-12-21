@@ -1,4 +1,8 @@
-use bevy::prelude::*;
+use bevy::{
+    core_pipeline::{
+        bloom::BloomSettings, tonemapping::Tonemapping
+    }, prelude::*
+};
 use smooth_bevy_cameras::controllers::unreal::{UnrealCameraBundle, UnrealCameraController};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -174,8 +178,28 @@ impl CustomCameraPlugin {
             // looking at is how to orient
             // y is up in bevy
             transform: Transform::from_translation(STARTING_CAM_POS).looking_at(TARGET, Vec3::Y),
+            camera: Camera {
+                hdr: true, // 1. HDR is required for bloom
+                ..default()
+            },
+            tonemapping: Tonemapping::TonyMcMapface, // 2. Using a tonemapper that desaturates to white is recommended
+
+
+
+
             ..default()
         };
+
+        // let fog = FogSettings {
+        //     color: Color::srgba(1.0,1.0,1.0, 1.0),
+        //     directional_light_color: Color::srgba(1.0, 0.95, 0.85, 0.5),
+        //     directional_light_exponent: 30.0,
+        //     falloff: FogFalloff::from_visibility_colors(
+        //         500.0, // distance in world units up to which objects retain visibility (>= 5% contrast)
+        //         Color::srgb(0.35, 0.5, 0.66), // atmospheric extinction color (after light is lost due to absorption by atmospheric particles)
+        //         Color::srgb(0.8, 0.844, 1.0), // atmospheric inscattering color (light gained due to scattering from the sun)
+        //     ),
+        // };
 
         let unreal_camera = UnrealCameraBundle::new(
             UnrealCameraController::default(),
@@ -184,6 +208,6 @@ impl CustomCameraPlugin {
             Vec3::Y,
         );
 
-        commands.spawn(bevy_camera).insert(unreal_camera);
+        commands.spawn((bevy_camera, BloomSettings::NATURAL)).insert(unreal_camera);
     }
 }

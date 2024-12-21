@@ -66,6 +66,9 @@ impl Plugin for Hypocycloid {
     }
 }
 
+
+// TOOD: look at https://github.com/enellis/bevy_lorenz_system !!!!!!
+
 impl Hypocycloid {
     
     fn run(
