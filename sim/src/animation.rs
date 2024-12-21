@@ -1,4 +1,6 @@
-use bevy::prelude::*;
+use std::{array, default, f32::consts::PI};
+
+use bevy::{math::VectorSpace, prelude::*, render::mesh::TorusMeshBuilder, scene::ron::de};
 
 use crate::config::colors_config;
 
@@ -15,9 +17,9 @@ impl HypocycloidTest {
 
     /// Spawn the components of the hypocycloid
     fn spawn_self(
-        // mut commands:Commands,
-        // mut meshes: ResMut<Assets<Mesh>>,
-        // mut materials: ResMut<Assets<StandardMaterial>>,
+        mut commands:Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
         mut draw: Gizmos
     ) {
         for i in 0..30 {
@@ -36,14 +38,24 @@ impl HypocycloidTest {
             // (0..40).map(|i| (Vec3::splat(i as f32 * i as f32), Color::Srgba(Srgba::WHITE)))
         );
 
+
+
         // does nothing
         // (0..30).map(|i| draw.line(Vec3::splat(i as f32 * i as f32), Vec3::splat((i + 1) as f32 * (i+1) as f32), Color::WHITE));
+
+
 
         for j in 0..200{
             for i in 0..40{
                 draw.line(Self::super_vec(i,j), Self::super_vec(i+1,j), Color::srgb_from_array([j as f32 /255., i as f32 /255., 1. - j as f32 /255.]))
             }        
         }
+
+        // not a great choice because you need an array which has to of fixed size at compile time.
+        // some hacks exist for getting a vec into an array
+        draw.primitive_3d(&Polyline3d {
+            vertices: array::from_fn::<Vec3, 30, _>(|i| Self::super_vec_f(i as f32*0.3, -20.0))
+        }, Vec3::ZERO, Quat::default(), Color::srgb(1.0, 0.5, 0.0));
     }
 
     fn super_vec(i: u32, offset: u32) -> Vec3
@@ -51,26 +63,128 @@ impl HypocycloidTest {
         let i = i as f32;
         Vec3::new(i*i + offset as f32, i*i*i, i*i*i*i)
     }
+
+    fn super_vec_f(i: f32, offset: f32) -> Vec3
+    {
+        let i = i;
+        Vec3::new(i*i + offset, i*i*i, i*i*i*i)
+    }
 }
 
 //////////////////////////////////////////
 //////////////////////////////////////////
 //////////////////////////////////////////
-
+#[derive(Component)]
+struct Points(Vec<Vec3>);
+#[derive(Component)]
+struct OuterCircle;
+#[derive(Component)]
+struct RollingCircle;
+#[derive(Component)]
+struct TraceLine;
+#[derive(Component,Default)] // give it things like a transform
+struct TracePoint(Vec3);
 
 pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, update_gizmo_config);
-        app.add_systems(Update, Self::run);
+        app.add_systems(Startup, Self::setup_scene);
+        app.add_systems(Update, Self::update_pos);
     }
 }
 
 impl Hypocycloid {
-    
-    fn run(
-        mut draw: Gizmos
+
+    fn setup_scene(
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
     ) {
+
+        let outer_circle_radius = 20.0;
+        let torus_tube_radius = 0.1;
+        let inner_circle_radius = 2.5;
+
+        commands.spawn((
+            PbrBundle {
+                mesh: meshes.add(
+                    TorusMeshBuilder {
+                        torus: Torus{
+                            major_radius: outer_circle_radius,
+                            minor_radius: torus_tube_radius,
+                        },
+                        major_resolution: 100,
+                        ..default()
+                    }
+                ),
+                material: materials.add(Color::WHITE),
+                transform : Transform::from_rotation(Quat::from_rotation_x(PI/2.0)),
+                ..default()
+            },
+            OuterCircle,
+        ));
+
+        commands.spawn((
+            PbrBundle {
+                mesh: meshes.add(
+                    TorusMeshBuilder {
+                        torus: Torus {
+                            major_radius: inner_circle_radius,
+                            minor_radius: torus_tube_radius
+                        },
+                        major_resolution: 100,
+                        ..default()
+                    }
+                ),
+                material: materials.add(Color::srgb(1.0, 0.0, 0.0)),
+                transform: Transform::from_xyz(outer_circle_radius -inner_circle_radius, 0.0, 0.0).with_rotation(Quat::from_rotation_x(PI/2.0)),
+                ..default()
+            },
+            RollingCircle
+        ));
+
+        commands.spawn((
+            PbrBundle {
+                mesh:  meshes.add(Cuboid::from_size(Vec3::new(inner_circle_radius, 0.1,0.1))),
+                material: materials.add(Color::WHITE),
+                transform : Transform::from_xyz(outer_circle_radius-inner_circle_radius*0.5, 0.0,0.0),
+                ..default()
+            },
+            TraceLine,
+            
+        )).with_children(
+            |parent| {
+                parent.spawn(TracePoint::default());
+            }
+        );
+
+
+        let mut outer_line_transform = Transform::from_xyz(outer_circle_radius/2., 0.0,0.0)
+            .with_scale(Vec3::new(outer_circle_radius, 0.1, 0.1));
+        outer_line_transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(30.0_f32.to_radians()));
+        
+        commands.spawn(
+            PbrBundle {
+                mesh:  meshes.add(Cuboid::from_length(1.0)),
+                material: materials.add(Color::WHITE),
+                transform : outer_line_transform ,
+                ..default()
+            }
+        );
+    }
+    
+    fn update_pos(
+        time : Res<Time>,
+        mut tracers: Query<(&mut Transform, &mut TracePoint),(With<TraceLine>, Without<RollingCircle>)>,
+        mut circle: Query<&mut Transform, (Without<TraceLine>, With<RollingCircle>, Without<TracePoint>)>,
+    ) {
+        let mut traceline = tracers.single_mut().0;
+        
+        // traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.elapsed_seconds().sin()));
+        
+        // let mut tracepoint = tracers.single_mut().1.0;
+        // println!("{tracepoint}");
 
     }
 

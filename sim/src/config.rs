@@ -43,6 +43,6 @@ pub mod origin_config {
 
 pub mod cam_config {
     use bevy::math::Vec3;
-    pub const POS: Vec3 = Vec3::splat(7.0);
+    pub const POS: Vec3 = Vec3::new(0.0, 0.0, -20.0);
     pub const LOOKING_AT: Vec3 = Vec3::ZERO;
 }
