@@ -5,6 +5,8 @@ use crate::config::colors_config;
 pub struct HypocycloidTest;
 impl Plugin for HypocycloidTest {
     fn build(&self, app: &mut App) {
+        app.add_systems(Update, config_gizmo);
+        app.add_systems(Update, update_gizmo_config);
         app.add_systems(Update, Self::spawn_self);
     }
 }
@@ -51,8 +53,70 @@ impl HypocycloidTest {
     }
 }
 
+//////////////////////////////////////////
+//////////////////////////////////////////
+//////////////////////////////////////////
 
 
+pub struct Hypocycloid;
+impl Plugin for Hypocycloid {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, update_gizmo_config);
+        app.add_systems(Update, Self::run);
+    }
+}
+
+impl Hypocycloid {
+    
+    fn run(
+        mut draw: Gizmos
+    ) {
+
+    }
+
+}
+
+//////////////////////////////////////////
+//////////////////////////////////////////
+//////////////////////////////////////////
+
+
+// SHARED GIZMO CONFIG CODE
+
+fn update_gizmo_config(
+    mut config_store: ResMut<GizmoConfigStore>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+) {
+    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
+
+    if keyboard.pressed(KeyCode::Space) && !keyboard.pressed(KeyCode::ShiftLeft) {
+        config.line_width += 30. * time.delta_seconds();
+    }
+
+    if keyboard.all_pressed([KeyCode::Space, KeyCode::ShiftLeft]){
+        config.line_width -= 30. * time.delta_seconds();
+        if config.line_width < 1.0 {
+            config.line_width = 1.0;
+        }
+    }
+}
+
+fn config_gizmo(
+    mut config_store: ResMut<GizmoConfigStore>,
+) {
+    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
+
+    // might improve performance if this number was reduced or switched to a different mode
+    config.line_joints = GizmoLineJoint::Miter;
+    config.line_perspective = true; // for some reason this makes the line width affect it much much less
+    config.line_width = 200.;
+    // config.depth_bias = -0.2;
+}
+
+//////////////////////////////////////////
+//////////////////////////////////////////
+//////////////////////////////////////////
 
 
 
