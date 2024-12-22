@@ -82,8 +82,8 @@ struct OuterCircle;
 struct RollingCircle;
 #[derive(Component)]
 struct TraceLine;
-#[derive(Component,Default)] // give it things like a transform
-struct TracePoint(Vec3);
+#[derive(Component, Default)]
+struct TracePoint();
 
 pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
@@ -176,15 +176,17 @@ impl Hypocycloid {
     
     fn update_pos(
         time : Res<Time>,
-        mut tracers: Query<(&mut Transform, &mut TracePoint),(With<TraceLine>, Without<RollingCircle>)>,
+        mut tracers: Query<&mut Transform,(With<TraceLine>, Without<RollingCircle>, Without<TracePoint>)>,
         mut circle: Query<&mut Transform, (Without<TraceLine>, With<RollingCircle>, Without<TracePoint>)>,
+        mut tracepoint: Query<&mut Transform, (With<TraceLine>, Without<RollingCircle>, With<TracePoint>)>
     ) {
-        let mut traceline = tracers.single_mut().0;
+        let mut traceline = tracers.single_mut();
         
-        // traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.elapsed_seconds().sin()));
+        traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
         
-        // let mut tracepoint = tracers.single_mut().1.0;
-        // println!("{tracepoint}");
+        let mut tracepoint = tracepoint.single_mut();
+        println!("{}", tracepoint.translation)
+        
 
     }
 
