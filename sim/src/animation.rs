@@ -1,8 +1,7 @@
-use std::{array, default, f32::consts::PI, iter::Enumerate};
+use std::{array, f32::consts::PI};
 
-use bevy::{math::VectorSpace, prelude::*, render::{mesh::TorusMeshBuilder, primitives::Aabb}, scene::ron::de, transform};
+use bevy::{prelude::*, render::mesh::TorusMeshBuilder};
 
-use crate::config::colors_config;
 use crate::config::hypocycloid_config;
 
 pub struct HypocycloidTest;
@@ -18,9 +17,9 @@ impl HypocycloidTest {
 
     /// Spawn the components of the hypocycloid
     fn spawn_self(
-        mut commands:Commands,
-        mut meshes: ResMut<Assets<Mesh>>,
-        mut materials: ResMut<Assets<StandardMaterial>>,
+        mut _commands:Commands,
+        mut _meshes: ResMut<Assets<Mesh>>,
+        mut _materials: ResMut<Assets<StandardMaterial>>,
         mut draw: Gizmos
     ) {
         for i in 0..30 {
@@ -32,7 +31,7 @@ impl HypocycloidTest {
             );
         }
 
-        // this doesnt work as i thought it would, only draws straight lines?
+        // this doesn't work as i thought it would, only draws straight lines?
         draw.linestrip_gradient(
             // https://stackoverflow.com/questions/53688202/does-rust-have-an-equivalent-to-pythons-dictionary-comprehension-syntax
             (0..40).map(|i| (Vec3::new(i as f32 *2., i as f32 *3., i as f32*10.), Color::srgb(i as f32 /10., i as f32/10., i as f32/10.)))
@@ -126,6 +125,7 @@ impl Hypocycloid {
                 ),
                 material: materials.add(Color::WHITE),
                 transform : Transform::from_rotation(Quat::from_rotation_x(PI/2.0)),
+                visibility: Visibility::Hidden,
                 ..default()
             },
             OuterCircle,
@@ -174,51 +174,12 @@ impl Hypocycloid {
                         ));
                     }
                 );
-                // parent.spawn((
-                //     PbrBundle {
-                //         visibility: Visibility::Visible,
-                //         mesh : meshes.add(Cuboid::default()),                       
-                //         transform: Transform::from_xyz(inner_circle_radius, 0.0, 0.0),
-                //         ..default()
-                //     },
-                //     TracePoint
-                // ));
             }
-        
         );
-
-        // commands.spawn((
-        //     PbrBundle {
-        //         mesh:  meshes.add(Cuboid::from_size(Vec3::new(inner_circle_radius, 0.1,0.1))),
-        //         material: materials.add(Color::WHITE),
-        //         transform : Transform::from_xyz(outer_circle_radius-inner_circle_radius*0.5, 0.0,0.0),
-        //         ..default()
-        //     },
-        //     TraceLine,
-            
-        // )).with_children(
-        //     |parent| {
-        //         parent.spawn(TracePoint::default());
-        //     }
-        // );
-
-
-        // let mut outer_line_transform = Transform::from_xyz(outer_circle_radius/2., 0.0,0.0)
-        //     .with_scale(Vec3::new(outer_circle_radius, 0.1, 0.1));
-        // outer_line_transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(30.0_f32.to_radians()));
-        
-        // commands.spawn(
-        //     PbrBundle {
-        //         mesh:  meshes.add(Cuboid::from_length(1.0)),
-        //         material: materials.add(Color::WHITE),
-        //         transform : outer_line_transform ,
-        //         ..default()
-        //     }
-        // );
     }
     
     fn update_pos(
-        time : Res<Time>,
+        time: Res<Time>,
         mut query: Query<(&mut Children, &mut Transform), With<RollingCircle>>,
         mut child_query: Query<(&mut TraceLine, &mut Transform, &GlobalTransform), Without<RollingCircle>>,
         mut trace_point : Query<(&TracePoint, &GlobalTransform), (Without<RollingCircle>, Without<TraceLine>)>,
@@ -228,8 +189,9 @@ impl Hypocycloid {
         
         let mut children = query.single_mut();
 
-        let rot_ang_circle = hypocycloid_config::CIRLCE_ROT_RATE;
-        let rot_ang_line = hypocycloid_config::LINE_ROT_RATE;
+        let rot_ang_circle = hypocycloid_config::CIRLCE_ROT_RATE + time.elapsed_seconds() / 100.;
+        // let rot_ang_line = hypocycloid_config::LINE_ROT_RATE;
+        let rot_ang_line = -hypocycloid_config::K* rot_ang_circle;
 
         children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(rot_ang_circle));
         if ! children.1.rotation.is_normalized() {
@@ -275,8 +237,14 @@ impl Hypocycloid {
         for i in 1..len_points {
             let angle = elasped + (i as f32).to_radians();
 
-            // draw.line(points[i-1], points[i], Color::srgba(f32::sin(angle + a60), f32::sin(angle + a120), f32::sin(angle + a180), 0.5));
-            draw.line(points[i-1], points[i], Color::srgba(1.0,0.0,0.0, 0.5));
+            draw.line(points[i-1], points[i], Color::srgba(
+                f32::sin(angle/2.0) *0.5+1., 
+                // f32::sin(angle + a180)*0.5+1., 
+                0.0, 
+                f32::sin(angle/2.0 + a120)*0.5+1.,
+                0.5
+            ));
+            // draw.line(points[i-1], points[i], Color::srgba(1.0,0.0,0.0, 0.5));
         }
 
     }

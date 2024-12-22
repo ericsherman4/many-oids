@@ -1,5 +1,8 @@
 {
     "cSpell.ignoreWords": [
-        "Srgba"
+        "Srgba",
+        "srgb",
+        "traceline",
+        "linestrip",
     ]
 }
