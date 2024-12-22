@@ -1,6 +1,6 @@
 use std::{array, default, f32::consts::PI};
 
-use bevy::{math::VectorSpace, prelude::*, render::mesh::TorusMeshBuilder, scene::ron::de, transform};
+use bevy::{math::VectorSpace, prelude::*, render::{mesh::TorusMeshBuilder, primitives::Aabb}, scene::ron::de, transform};
 
 use crate::config::colors_config;
 
@@ -82,10 +82,8 @@ struct OuterCircle;
 struct RollingCircle;
 #[derive(Component, Debug)]
 struct TraceLine;
-#[derive(Component, Default, Debug)]
-struct TracePoint {
-    transform:Transform
-}
+#[derive(Component, Debug)]
+struct TracePoint;
 
 pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
@@ -140,6 +138,8 @@ impl Hypocycloid {
                     }
                 ),
                 material: materials.add(Color::srgb(1.0, 0.0, 0.0)),
+                // because of this rotation, you are rotating the coordinate frame of all the children.
+                // so now instead of z pointing in /out of the screen, y does. 
                 transform: Transform::from_xyz(outer_circle_radius -inner_circle_radius, 0.0, 0.0).with_rotation(Quat::from_rotation_x(PI/2.0)),
                 ..default()
             },
@@ -155,11 +155,30 @@ impl Hypocycloid {
                     }, 
                     TraceLine
                 ));
-
-                // parent.spawn(TracePoint { transform: Transform::from_translation(Vec3::splat(10.0))});
-
+                parent.spawn((
+                    PbrBundle {
+                        visibility: Visibility::Visible,
+                        mesh : meshes.add(Cuboid::default()),                       
+                        transform: Transform::from_xyz(inner_circle_radius, 0.0, 0.0),
+                        ..default()
+                    },
+                    TracePoint
+                ));
             }
         );
+        // ).with_children(
+        //     |thing| {
+        //         thing.spawn((
+        //             PbrBundle {
+        //                 visibility: Visibility::Visible,
+        //                 mesh : meshes.add(Cuboid::default()),                       
+        //                 transform: Transform::from_xyz(inner_circle_radius, 0.0, 0.0),
+        //                 ..default()
+        //             },
+        //             TracePoint
+        //         ));
+        //     }
+        // );
 
         // commands.spawn((
         //     PbrBundle {
@@ -195,36 +214,18 @@ impl Hypocycloid {
         time : Res<Time>,
         mut query: Query<(&mut Children, &mut Transform), With<RollingCircle>>,
         mut child_query: Query<(&mut TraceLine, &mut Transform), Without<RollingCircle>>,
+        mut trace_point : Query<(&TracePoint, &mut Transform), (Without<RollingCircle>, Without<TraceLine>)>,
         mut draw : Gizmos
     ) {
         
         let mut children = query.single_mut();
-        // for &child in children.0.iter() {
-            // let mut traceline =  child_query.get_mut(child);
-
-            // let mut transform = *traceline.unwrap().1;
-            
-            // transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(1.0_f32.to_radians()));
-
-            // if let Ok(mut transform) = traceline.unwrap().1 {
-            //     transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
-            // }
-
-            // traceline.unwrap().1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
-    
-
-            // println!("{:?}", transform.rotation);
-        // }
-
-
-    
 
         children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(0.5_f32.to_radians()));
         if ! children.1.rotation.is_normalized() {
             children.1.rotation = children.1.rotation.normalize();
             println!("children 1 not normalized");
         }
-        // draw.axes(*children.1, 5.0);
+        draw.axes(*children.1, 2.0);
 
         // this is the traceline, bad names
         let mut traceline = child_query.single_mut().1;
@@ -235,7 +236,13 @@ impl Hypocycloid {
             println!("traceline not normalized");
         }
 
-        // draw.axes(*traceline, 5.0);
+        draw.axes(*traceline, 2.0);
+
+        let mut tracepoint = trace_point.single_mut();
+        tracepoint.1.translation.x = 3.0*f32::sin(time.elapsed_seconds());
+        
+        draw.axes(*tracepoint.1, 5.0 );
+
 
     }
 
