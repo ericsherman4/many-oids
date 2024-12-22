@@ -1,6 +1,6 @@
 use std::{array, default, f32::consts::PI};
 
-use bevy::{math::VectorSpace, prelude::*, render::mesh::TorusMeshBuilder, scene::ron::de};
+use bevy::{math::VectorSpace, prelude::*, render::mesh::TorusMeshBuilder, scene::ron::de, transform};
 
 use crate::config::colors_config;
 
@@ -78,12 +78,14 @@ impl HypocycloidTest {
 struct Points(Vec<Vec3>);
 #[derive(Component)]
 struct OuterCircle;
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct RollingCircle;
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct TraceLine;
-#[derive(Component, Default)]
-struct TracePoint();
+#[derive(Component, Default, Debug)]
+struct TracePoint {
+    transform:Transform
+}
 
 pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
@@ -142,51 +144,86 @@ impl Hypocycloid {
                 ..default()
             },
             RollingCircle
-        ));
-
-        commands.spawn((
-            PbrBundle {
-                mesh:  meshes.add(Cuboid::from_size(Vec3::new(inner_circle_radius, 0.1,0.1))),
-                material: materials.add(Color::WHITE),
-                transform : Transform::from_xyz(outer_circle_radius-inner_circle_radius*0.5, 0.0,0.0),
-                ..default()
-            },
-            TraceLine,
-            
         )).with_children(
             |parent| {
-                parent.spawn(TracePoint::default());
+                parent.spawn((
+                    PbrBundle {
+                        mesh:  meshes.add(Cuboid::from_size(Vec3::new(inner_circle_radius, 0.1,0.1))),
+                        material: materials.add(Color::WHITE),
+                        transform : Transform::from_xyz(inner_circle_radius*0.5, 0.0,0.0), // 0,0,0 in this case is center of parent
+                        ..default()
+                    }, 
+                    TraceLine
+                ));
+
+                // parent.spawn(TracePoint { transform: Transform::from_translation(Vec3::splat(10.0))});
+
             }
         );
 
+        // commands.spawn((
+        //     PbrBundle {
+        //         mesh:  meshes.add(Cuboid::from_size(Vec3::new(inner_circle_radius, 0.1,0.1))),
+        //         material: materials.add(Color::WHITE),
+        //         transform : Transform::from_xyz(outer_circle_radius-inner_circle_radius*0.5, 0.0,0.0),
+        //         ..default()
+        //     },
+        //     TraceLine,
+            
+        // )).with_children(
+        //     |parent| {
+        //         parent.spawn(TracePoint::default());
+        //     }
+        // );
 
-        let mut outer_line_transform = Transform::from_xyz(outer_circle_radius/2., 0.0,0.0)
-            .with_scale(Vec3::new(outer_circle_radius, 0.1, 0.1));
-        outer_line_transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(30.0_f32.to_radians()));
+
+        // let mut outer_line_transform = Transform::from_xyz(outer_circle_radius/2., 0.0,0.0)
+        //     .with_scale(Vec3::new(outer_circle_radius, 0.1, 0.1));
+        // outer_line_transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(30.0_f32.to_radians()));
         
-        commands.spawn(
-            PbrBundle {
-                mesh:  meshes.add(Cuboid::from_length(1.0)),
-                material: materials.add(Color::WHITE),
-                transform : outer_line_transform ,
-                ..default()
-            }
-        );
+        // commands.spawn(
+        //     PbrBundle {
+        //         mesh:  meshes.add(Cuboid::from_length(1.0)),
+        //         material: materials.add(Color::WHITE),
+        //         transform : outer_line_transform ,
+        //         ..default()
+        //     }
+        // );
     }
     
     fn update_pos(
         time : Res<Time>,
-        mut tracers: Query<&mut Transform,(With<TraceLine>, Without<RollingCircle>, Without<TracePoint>)>,
-        mut circle: Query<&mut Transform, (Without<TraceLine>, With<RollingCircle>, Without<TracePoint>)>,
-        mut tracepoint: Query<&mut Transform, (With<TraceLine>, Without<RollingCircle>, With<TracePoint>)>
+        mut query: Query<(&mut Children, &mut Transform), With<RollingCircle>>,
+        mut child_query: Query<(&mut TraceLine, &mut Transform), Without<RollingCircle>>,
+        mut draw : Gizmos
     ) {
-        let mut traceline = tracers.single_mut();
         
-        traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
-        
-        let mut tracepoint = tracepoint.single_mut();
-        println!("{}", tracepoint.translation)
-        
+        let mut children = query.single_mut();
+        for &child in children.0.iter() {
+            let mut traceline =  child_query.get_mut(child);
+
+            let mut transform = *traceline.unwrap().1;
+            
+            // transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(1.0_f32.to_radians()));
+
+            // if let Ok(mut transform) = traceline.unwrap().1 {
+            //     transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
+            // }
+
+            // traceline.unwrap().1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
+    
+
+            // println!("{:?}", transform.rotation);
+        }
+
+        children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
+        // draw.axes(*children.1, 5.0);
+
+        // this is the traceline, bad names
+        let mut traceline = child_query.single_mut().1;
+        traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_y(1.0_f32.to_radians()));
+
+        // draw.axes(*traceline, 5.0);
 
     }
 
