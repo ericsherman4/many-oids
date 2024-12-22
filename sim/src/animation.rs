@@ -199,10 +199,10 @@ impl Hypocycloid {
     ) {
         
         let mut children = query.single_mut();
-        for &child in children.0.iter() {
-            let mut traceline =  child_query.get_mut(child);
+        // for &child in children.0.iter() {
+            // let mut traceline =  child_query.get_mut(child);
 
-            let mut transform = *traceline.unwrap().1;
+            // let mut transform = *traceline.unwrap().1;
             
             // transform.rotate_around(Vec3::ZERO, Quat::from_rotation_z(1.0_f32.to_radians()));
 
@@ -214,14 +214,26 @@ impl Hypocycloid {
     
 
             // println!("{:?}", transform.rotation);
-        }
+        // }
 
-        children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(time.delta_seconds()));
+
+    
+
+        children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(0.5_f32.to_radians()));
+        if ! children.1.rotation.is_normalized() {
+            children.1.rotation = children.1.rotation.normalize();
+            println!("children 1 not normalized");
+        }
         // draw.axes(*children.1, 5.0);
 
         // this is the traceline, bad names
         let mut traceline = child_query.single_mut().1;
         traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_y(1.0_f32.to_radians()));
+
+        if ! traceline.rotation.is_normalized() {
+            traceline.rotation = traceline.rotation.normalize();
+            println!("traceline not normalized");
+        }
 
         // draw.axes(*traceline, 5.0);
 
