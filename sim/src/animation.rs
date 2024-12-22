@@ -1,8 +1,9 @@
-use std::{array, default, f32::consts::PI};
+use std::{array, default, f32::consts::PI, iter::Enumerate};
 
 use bevy::{math::VectorSpace, prelude::*, render::{mesh::TorusMeshBuilder, primitives::Aabb}, scene::ron::de, transform};
 
 use crate::config::colors_config;
+use crate::config::hypocycloid_config;
 
 pub struct HypocycloidTest;
 impl Plugin for HypocycloidTest {
@@ -74,8 +75,10 @@ impl HypocycloidTest {
 //////////////////////////////////////////
 //////////////////////////////////////////
 //////////////////////////////////////////
-#[derive(Component)]
-struct Points(Vec<Vec3>);
+#[derive(Resource)]
+struct Points{
+    points: Vec<Vec3>
+}
 #[derive(Component)]
 struct OuterCircle;
 #[derive(Component, Debug)]
@@ -91,6 +94,7 @@ impl Plugin for Hypocycloid {
         app.add_systems(Startup, update_gizmo_config);
         app.add_systems(Startup, Self::setup_scene);
         app.add_systems(Update, Self::update_pos);
+        app.add_systems(Update, Self::draw_track);
     }
 }
 
@@ -102,9 +106,11 @@ impl Hypocycloid {
         mut materials: ResMut<Assets<StandardMaterial>>,
     ) {
 
-        let outer_circle_radius = 20.0;
+        let outer_circle_radius = hypocycloid_config::OUTER_RAD;
         let torus_tube_radius = 0.1;
-        let inner_circle_radius = 2.5;
+        let inner_circle_radius = hypocycloid_config::INNER_RAD;
+
+        commands.insert_resource(Points { points: Vec::with_capacity(200_000)});
 
         commands.spawn((
             PbrBundle {
@@ -154,31 +160,32 @@ impl Hypocycloid {
                         ..default()
                     }, 
                     TraceLine
-                ));
-                parent.spawn((
-                    PbrBundle {
-                        visibility: Visibility::Visible,
-                        mesh : meshes.add(Cuboid::default()),                       
-                        transform: Transform::from_xyz(inner_circle_radius, 0.0, 0.0),
-                        ..default()
-                    },
-                    TracePoint
-                ));
+                )).with_children(
+                    |parent| {
+                        parent.spawn((
+                            PbrBundle {
+                                visibility: Visibility::Visible,
+                                mesh : meshes.add(Sphere::default()),             
+                                // from the reference frame of the stick. so need minus half length of stick or rad/2
+                                transform: Transform::from_xyz(inner_circle_radius*0.5, 0.0, 0.0),
+                                ..default()
+                            },
+                            TracePoint
+                        ));
+                    }
+                );
+                // parent.spawn((
+                //     PbrBundle {
+                //         visibility: Visibility::Visible,
+                //         mesh : meshes.add(Cuboid::default()),                       
+                //         transform: Transform::from_xyz(inner_circle_radius, 0.0, 0.0),
+                //         ..default()
+                //     },
+                //     TracePoint
+                // ));
             }
+        
         );
-        // ).with_children(
-        //     |thing| {
-        //         thing.spawn((
-        //             PbrBundle {
-        //                 visibility: Visibility::Visible,
-        //                 mesh : meshes.add(Cuboid::default()),                       
-        //                 transform: Transform::from_xyz(inner_circle_radius, 0.0, 0.0),
-        //                 ..default()
-        //             },
-        //             TracePoint
-        //         ));
-        //     }
-        // );
 
         // commands.spawn((
         //     PbrBundle {
@@ -213,14 +220,18 @@ impl Hypocycloid {
     fn update_pos(
         time : Res<Time>,
         mut query: Query<(&mut Children, &mut Transform), With<RollingCircle>>,
-        mut child_query: Query<(&mut TraceLine, &mut Transform), Without<RollingCircle>>,
-        mut trace_point : Query<(&TracePoint, &mut Transform), (Without<RollingCircle>, Without<TraceLine>)>,
-        mut draw : Gizmos
+        mut child_query: Query<(&mut TraceLine, &mut Transform, &GlobalTransform), Without<RollingCircle>>,
+        mut trace_point : Query<(&TracePoint, &GlobalTransform), (Without<RollingCircle>, Without<TraceLine>)>,
+        mut draw : Gizmos,
+        mut points: ResMut<Points>,
     ) {
         
         let mut children = query.single_mut();
 
-        children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(0.5_f32.to_radians()));
+        let rot_ang_circle = hypocycloid_config::CIRLCE_ROT_RATE;
+        let rot_ang_line = hypocycloid_config::LINE_ROT_RATE;
+
+        children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(rot_ang_circle));
         if ! children.1.rotation.is_normalized() {
             children.1.rotation = children.1.rotation.normalize();
             println!("children 1 not normalized");
@@ -229,20 +240,44 @@ impl Hypocycloid {
 
         // this is the traceline, bad names
         let mut traceline = child_query.single_mut().1;
-        traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_y(1.0_f32.to_radians()));
+        traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_y(rot_ang_line));
 
         if ! traceline.rotation.is_normalized() {
             traceline.rotation = traceline.rotation.normalize();
             println!("traceline not normalized");
         }
 
-        draw.axes(*traceline, 2.0);
+        draw.axes(*child_query.single().2, 2.0);
 
         let mut tracepoint = trace_point.single_mut();
-        tracepoint.1.translation.x = 3.0*f32::sin(time.elapsed_seconds());
+        // tracepoint.1.translation.x = 3.0*f32::sin(time.elapsed_seconds());
+        // println!("{}", tracepoint.1.translation());
+
+        points.points.push(tracepoint.1.translation());
         
         draw.axes(*tracepoint.1, 5.0 );
+    }
 
+    fn draw_track(
+        points: Res<Points>,
+        mut draw : Gizmos,
+        time: Res<Time>
+    ) {
+        let points = &points.points;
+        // let elasped = time.elapsed_seconds();
+        let elasped = 0.0;
+        let a60 = PI/3.0;
+        let a120 = PI/3.0*2.0;
+        let a180 = PI;
+        let len_points = points.len();
+        println!("{len_points}");
+        // let len = points.len();
+        for i in 1..len_points {
+            let angle = elasped + (i as f32).to_radians();
+
+            // draw.line(points[i-1], points[i], Color::srgba(f32::sin(angle + a60), f32::sin(angle + a120), f32::sin(angle + a180), 0.5));
+            draw.line(points[i-1], points[i], Color::srgba(1.0,0.0,0.0, 0.5));
+        }
 
     }
 
