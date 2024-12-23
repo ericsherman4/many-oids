@@ -48,12 +48,10 @@ pub mod cam_config {
 }
 
 pub mod hypocycloid_config {
-    use std::f32::consts::PI;
-
     pub const INNER_RAD: f32 = 10.0;
     pub const K:f32 = 31.0/12.3398748789;
     pub const OUTER_RAD :f32= INNER_RAD*K;
-    pub const CIRLCE_ROT_RATE: f32 = -0.1;
+    pub const CIRLCE_ROT_RATE: f32 = -0.05;
     pub const LINE_ROT_RATE: f32 = -CIRLCE_ROT_RATE*K;
 
 }

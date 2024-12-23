@@ -1,83 +1,21 @@
-use std::{array, f32::consts::PI};
-
-use bevy::{prelude::*, render::mesh::TorusMeshBuilder};
-
+use std::{f32::consts::PI, time::Duration};
+use bevy::{prelude::*, render::mesh::TorusMeshBuilder, time::common_conditions::repeating_after_delay};
 use crate::config::hypocycloid_config;
-
-pub struct HypocycloidTest;
-impl Plugin for HypocycloidTest {
-    fn build(&self, app: &mut App) {
-        app.add_systems(Update, config_gizmo);
-        app.add_systems(Update, update_gizmo_config);
-        app.add_systems(Update, Self::spawn_self);
-    }
-}
-
-impl HypocycloidTest {
-
-    /// Spawn the components of the hypocycloid
-    fn spawn_self(
-        mut _commands:Commands,
-        mut _meshes: ResMut<Assets<Mesh>>,
-        mut _materials: ResMut<Assets<StandardMaterial>>,
-        mut draw: Gizmos
-    ) {
-        for i in 0..30 {
-            draw.line_gradient(
-                Vec3::splat(i as f32),
-                Vec3::splat((i+1) as f32), 
-                Color::srgb_from_array([i as f32 / 2.0, i as f32 / 4.0, i as f32 / 6.0]),
-                Color::srgb_from_array([i as f32 / 4.0, i as f32 / 6.0, i as f32 / 8.0])
-            );
-        }
-
-        // this doesn't work as i thought it would, only draws straight lines?
-        draw.linestrip_gradient(
-            // https://stackoverflow.com/questions/53688202/does-rust-have-an-equivalent-to-pythons-dictionary-comprehension-syntax
-            (0..40).map(|i| (Vec3::new(i as f32 *2., i as f32 *3., i as f32*10.), Color::srgb(i as f32 /10., i as f32/10., i as f32/10.)))
-            // (0..40).map(|i| (Vec3::splat(i as f32 * i as f32), Color::Srgba(Srgba::WHITE)))
-        );
+use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 
 
 
-        // does nothing
-        // (0..30).map(|i| draw.line(Vec3::splat(i as f32 * i as f32), Vec3::splat((i + 1) as f32 * (i+1) as f32), Color::WHITE));
-
-
-
-        for j in 0..200{
-            for i in 0..40{
-                draw.line(Self::super_vec(i,j), Self::super_vec(i+1,j), Color::srgb_from_array([j as f32 /255., i as f32 /255., 1. - j as f32 /255.]))
-            }        
-        }
-
-        // not a great choice because you need an array which has to of fixed size at compile time.
-        // some hacks exist for getting a vec into an array
-        draw.primitive_3d(&Polyline3d {
-            vertices: array::from_fn::<Vec3, 30, _>(|i| Self::super_vec_f(i as f32*0.3, -20.0))
-        }, Vec3::ZERO, Quat::default(), Color::srgb(1.0, 0.5, 0.0));
-    }
-
-    fn super_vec(i: u32, offset: u32) -> Vec3
-    {
-        let i = i as f32;
-        Vec3::new(i*i + offset as f32, i*i*i, i*i*i*i)
-    }
-
-    fn super_vec_f(i: f32, offset: f32) -> Vec3
-    {
-        let i = i;
-        Vec3::new(i*i + offset, i*i*i, i*i*i*i)
-    }
-}
-
-//////////////////////////////////////////
-//////////////////////////////////////////
-//////////////////////////////////////////
 #[derive(Resource)]
 struct Points{
     points: Vec<Vec3>
 }
+#[derive(Reflect,Resource, Default)]
+#[reflect(Resource)]
+struct OverrideColor {
+    overrided: bool,
+    override_color: Color,
+}
+
 #[derive(Component)]
 struct OuterCircle;
 #[derive(Component, Debug)]
@@ -90,9 +28,20 @@ struct TracePoint;
 pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, update_gizmo_config);
+        // app.insert_resource(Time::<Fixed>::from_seconds(0.01));
+
+        // https://github.com/jakobhellermann/bevy-inspector-egui/tree/v0.27.0
+        app.init_resource::<OverrideColor>();
+        app.register_type::<OverrideColor>();
+        app.add_plugins(ResourceInspectorPlugin::<OverrideColor>::default());
+
+        app.add_systems(Startup, config_gizmo);
         app.add_systems(Startup, Self::setup_scene);
-        app.add_systems(Update, Self::update_pos);
+        // app.add_systems(Startup, update_gizmo_config);
+
+        app.add_systems(Update, Self::update_pos2.run_if(repeating_after_delay(Duration::from_secs_f32(2.0))));
+
+        app.add_systems(Update, Self::draw_gizmos);
         app.add_systems(Update, Self::draw_track);
     }
 }
@@ -104,7 +53,6 @@ impl Hypocycloid {
         mut meshes: ResMut<Assets<Mesh>>,
         mut materials: ResMut<Assets<StandardMaterial>>,
     ) {
-
         let outer_circle_radius = hypocycloid_config::OUTER_RAD;
         let torus_tube_radius = 0.1;
         let inner_circle_radius = hypocycloid_config::INNER_RAD;
@@ -177,87 +125,119 @@ impl Hypocycloid {
             }
         );
     }
-    
-    fn update_pos(
-        time: Res<Time>,
-        mut query: Query<(&mut Children, &mut Transform), With<RollingCircle>>,
-        mut child_query: Query<(&mut TraceLine, &mut Transform, &GlobalTransform), Without<RollingCircle>>,
-        mut trace_point : Query<(&TracePoint, &GlobalTransform), (Without<RollingCircle>, Without<TraceLine>)>,
-        mut draw : Gizmos,
-        mut points: ResMut<Points>,
-    ) {
-        
-        let mut children = query.single_mut();
 
-        let rot_ang_circle = hypocycloid_config::CIRLCE_ROT_RATE + time.elapsed_seconds() / 100.;
-        // let rot_ang_line = hypocycloid_config::LINE_ROT_RATE;
-        let rot_ang_line = -hypocycloid_config::K* rot_ang_circle;
-
-        children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(rot_ang_circle));
-        if ! children.1.rotation.is_normalized() {
-            children.1.rotation = children.1.rotation.normalize();
-            println!("children 1 not normalized");
+    /// Draw gizmos for the meshes
+    fn draw_gizmos(
+        mut draw: Gizmos,
+        // Normally, doing (With<X>, With<Y>, With<Z>) will use an AND. So it will get global transform's that have all 3 components.
+        // Using Or means it will get a GlobalTransform IF it has either X, Y, or Z component.
+        transforms: Query<&GlobalTransform, Or<(With<TraceLine>, With<TracePoint>, With<RollingCircle>)>>
+    ){
+        for &transform in transforms.iter() {
+            draw.axes(transform, 3.0);
         }
-        draw.axes(*children.1, 2.0);
+    }
 
-        // this is the traceline, bad names
-        let mut traceline = child_query.single_mut().1;
-        traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_y(rot_ang_line));
+    fn update_pos2(
+        mut points: ResMut<Points>,
+        // rolling_circle: Query<(& mut Transform, &RollingCircle)>, //(With<RollingCircle>, Without<TracePoint>, Without<TraceLine>)>,
+        // trace_point: Query<(& mut Transform,&TracePoint)>, //(With<TracePoint>, Without<TraceLine>, Without<RollingCircle>)>,
+        // trace_line: Query<(& mut Transform,&TraceLine)>, //(With<TraceLine>, Without<TracePoint>, Without<RollingCircle>)>,
+        
+        // The children do not at all impact queries. You can query for the children, and use that to get entities from a different query,
+        // or you can query for components of the children directly.
+        // An alternative to the below solution would be to have 3 different functions each which update one thing.
+        // This means you wont need to any the queries being disjoint because all of them would have one query.
+        mut set: ParamSet<(
+            Query<&mut Transform, With<RollingCircle>>,
+            Query<&mut Transform, With<TraceLine>>,
+            Query<&GlobalTransform, With<TracePoint>>,
+        )>,
 
+        // There is another solution which would be query the children of the parent and then have another query that get all the children components.
+        // but in this case, because you have a bunch of single components, 
+        // its easier to have separate queries for them as otherwise if you are looping over
+        // the children, you need to check the type there somehow so you can do the right transform on it
+    )
+    {   
+        // cant do set.p0.single() directly because it will return a temporary
+        let mut param = set.p0();
+        let mut circle = param.single_mut();
+        circle.rotate_around(Vec3::ZERO,Quat::from_rotation_z(hypocycloid_config::CIRLCE_ROT_RATE));
+        // Check if the final rotation is normalized, and if not normalize it
+        if ! circle.rotation.is_normalized() {
+            circle.rotation = circle.rotation.normalize();
+        }
+
+        // repeat the same for the traceline.
+        let mut param = set.p1();
+        let mut traceline = param.single_mut();
+        //  Using y rotation because not in the absolute coordinate frame, it is relative to the parent.
+        traceline.rotate_around(Vec3::ZERO,Quat::from_rotation_y(hypocycloid_config::LINE_ROT_RATE));
         if ! traceline.rotation.is_normalized() {
             traceline.rotation = traceline.rotation.normalize();
-            println!("traceline not normalized");
         }
 
-        draw.axes(*child_query.single().2, 2.0);
-
-        let mut tracepoint = trace_point.single_mut();
-        // tracepoint.1.translation.x = 3.0*f32::sin(time.elapsed_seconds());
-        // println!("{}", tracepoint.1.translation());
-
-        points.points.push(tracepoint.1.translation());
-        
-        draw.axes(*tracepoint.1, 5.0 );
+        let tracepoint = *set.p2().single();
+        points.points.push(tracepoint.translation());
     }
 
     fn draw_track(
         points: Res<Points>,
+        color_override: Res<OverrideColor>,
         mut draw : Gizmos,
-        time: Res<Time>
     ) {
-        let points = &points.points;
-        // let elasped = time.elapsed_seconds();
-        let elasped = 0.0;
+        // Different phases that could be used 
         let a60 = PI/3.0;
         let a120 = PI/3.0*2.0;
         let a180 = PI;
+
+        // Get the points
+        let points = &points.points;
         let len_points = points.len();
-        println!("{len_points}");
-        // let len = points.len();
+        // println!("{len_points}");
+
         for i in 1..len_points {
-            let angle = elasped + (i as f32).to_radians();
+            // Get the angle and scale down so less repetition
+            let angle = (i as f32).to_radians() / 14.0;
 
+            // Check if the color is overridden
+            if color_override.overrided {
+                draw.line(points[i-1], points[i], color_override.override_color);
+                continue;
+            }
+
+            // draw the line with the color
+            // use desmos to plot the rgb lines with the amp and offset and phase angle to
+            // see roughly what your color pattern will look like.
             draw.line(points[i-1], points[i], Color::srgba(
-                f32::sin(angle/2.0) *0.5+1., 
-                // f32::sin(angle + a180)*0.5+1., 
-                0.0, 
-                f32::sin(angle/2.0 + a120)*0.5+1.,
-                0.5
+                f32::sin(angle + a60) *0.5+0.5, 
+                f32::sin(angle + a180)*0.5 + 0.5, 
+                f32::sin(angle)*0.5+0.5,
+                1.0
             ));
-            // draw.line(points[i-1], points[i], Color::srgba(1.0,0.0,0.0, 0.5));
         }
-
     }
-
 }
 
 //////////////////////////////////////////
+// GIZMO CONFIG CODE
 //////////////////////////////////////////
-//////////////////////////////////////////
 
+/// Change the initial default settings of a Gizmo
+fn config_gizmo(
+    mut config_store: ResMut<GizmoConfigStore>,
+) {
+    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
 
-// SHARED GIZMO CONFIG CODE
+    // might improve performance if this number was reduced or switched to a different mode
+    config.line_joints = GizmoLineJoint::Miter;
+    config.line_perspective = true; // for some reason this makes the line width affect it much much less
+    config.line_width = 80.;
+    config.depth_bias = -0.2;
+}
 
+/// Update the gizmo configuration on the fly
 fn update_gizmo_config(
     mut config_store: ResMut<GizmoConfigStore>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -277,32 +257,5 @@ fn update_gizmo_config(
     }
 }
 
-fn config_gizmo(
-    mut config_store: ResMut<GizmoConfigStore>,
-) {
-    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
 
-    // might improve performance if this number was reduced or switched to a different mode
-    config.line_joints = GizmoLineJoint::Miter;
-    config.line_perspective = true; // for some reason this makes the line width affect it much much less
-    config.line_width = 200.;
-    // config.depth_bias = -0.2;
-}
-
-//////////////////////////////////////////
-//////////////////////////////////////////
-//////////////////////////////////////////
-
-
-
-// https://wwwtyro.net/2019/11/18/instanced-lines.html
-// https://www.reddit.com/r/bevy/comments/1ciwzb1/is_it_bad_to_use_gizmos_in_the_game/
-// https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline
-// https://www.reddit.com/r/bevy/comments/1e04xk8/how_to_create_2d_object_from_arbitrary_list_of/
-// seems like you either use polyline or gizmos. giszmos seems performant enough even tho they are redrawn every frame
-
-// method one seems to be try gizmos? 
-// if that doesnt work, try primitives https://docs.rs/bevy/0.14.2/bevy/math/primitives/index.html
-// if that doesnt work try polyline
-// if that doesnt work, try custom meshes with maybe a custom shader
 

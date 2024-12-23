@@ -19,7 +19,6 @@ fn main() {
             scene::CustomLightsPlugin,
             // scene::OriginPlugin,
             scene::CustomCameraPlugin,
-            // animation::HypocycloidTest,
             animation:: Hypocycloid,
         ))
         .run();
