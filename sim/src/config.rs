@@ -48,7 +48,7 @@ pub mod cam_config {
 }
 
 pub mod hypocycloid_config {
-    pub const INNER_RAD: f32 = 10.0;
+    pub const INNER_RAD: f32 = 15.0;
     pub const K:f32 = 31.0/12.3398748789;
     pub const OUTER_RAD :f32= INNER_RAD*K;
     pub const CIRLCE_ROT_RATE: f32 = -0.05;
