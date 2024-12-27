@@ -7,12 +7,17 @@ use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 
 #[derive(Resource)]
 struct Points{
-    points: Vec<Vec3>
+    //TODO: maybe this should be part of tracepoint so you remove the need for everything to be a singleton
+    points: Vec<Vec3> 
 }
+/// A resource that will override the color of the hypocycloid 
 #[derive(Reflect,Resource, Default)]
 #[reflect(Resource)]
 struct OverrideColor {
-    overrided: bool,
+    /// Will override the color if true
+    overrode: bool,
+
+    /// The override color
     override_color: Color,
 }
 
@@ -25,10 +30,58 @@ struct TraceLine;
 #[derive(Component, Debug)]
 struct TracePoint;
 
+#[derive(Component, Debug)]
+struct HypocycloidTracking {
+    /// the center of the outer circle
+    outer_circle_xform: Transform,
+
+    /// the center of the inner circle
+    inner_circle_xform: Transform,
+
+    /// transform of the trace point
+    trace_point_xform: Transform, 
+
+    /// transform of the trace line
+    /// this is not necessary in terms of pure items that are needed to determine tracker position
+    /// but is necessary if you want visuals of all the components.
+    /// this stores the transform of the CENTER of the traceline
+    trace_line_xform: Transform, 
+
+    /// struct to hold all previous positions
+    trace_points: Vec<Vec3>, // could convert to drawing cylinders instead
+}
+
+impl HypocycloidTracking {
+    fn new(inner_rad: f32, outer_rad:f32, starting_xform: Transform) -> Self {
+
+        // minus x because currently the camera is looking at the origin from behind the x/y plane
+        let mut inner_circle_xform = starting_xform;
+        inner_circle_xform.translation.x += -1.0 * (outer_rad - inner_rad);
+
+        let mut trace_point_xform = starting_xform;
+        trace_point_xform.translation.x += -1.0* outer_rad;
+
+        let mut trace_line_xform = starting_xform;
+        trace_line_xform.translation.x += -1.0*  (outer_rad - 0.5*inner_rad);
+
+
+        HypocycloidTracking{
+            outer_circle_xform: starting_xform,
+            inner_circle_xform:  inner_circle_xform,
+            trace_line_xform: trace_line_xform,
+            trace_point_xform: trace_point_xform,
+
+            trace_points: Vec::with_capacity(200_000),
+        }
+    }
+}
+
+
 pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
     fn build(&self, app: &mut App) {
-        // app.insert_resource(Time::<Fixed>::from_seconds(0.01));
+
+        const START_DELAY: f32 = 2.0;
 
         // https://github.com/jakobhellermann/bevy-inspector-egui/tree/v0.27.0
         app.init_resource::<OverrideColor>();
@@ -37,17 +90,26 @@ impl Plugin for Hypocycloid {
 
         app.add_systems(Startup, config_gizmo);
         app.add_systems(Startup, Self::setup_scene);
-        // app.add_systems(Startup, update_gizmo_config);
+        
+        // new system
+        app.insert_resource(Time::<Fixed>::from_seconds(0.0005));
+        app.add_systems(FixedUpdate, Self::update_new_tracker.run_if(repeating_after_delay(Duration::from_secs_f32(START_DELAY))));
+        app.add_systems(Update, Self::draw_new_track);
+        app.add_systems(Update, Self:: draw_new_gizmos_and_move_meshes);
 
-        app.add_systems(Update, Self::update_pos2.run_if(repeating_after_delay(Duration::from_secs_f32(2.0))));
-
-        app.add_systems(Update, Self::draw_gizmos);
-        app.add_systems(Update, Self::draw_track);
+        // old system
+        // app.add_systems(Update, Self::update_pos2.run_if(repeating_after_delay(Duration::from_secs_f32(START_DELAY))));
+        // app.add_systems(Update, Self::draw_track);
+        
+        // Axes gizmos and gizmo config
+        // app.add_systems(Update, Self::draw_gizmos);
+        app.add_systems(Update, update_gizmo_config);
     }
 }
 
 impl Hypocycloid {
 
+    /// Spawn all the meshes in the right hierarchy
     fn setup_scene(
         mut commands: Commands,
         mut meshes: ResMut<Assets<Mesh>>,
@@ -59,6 +121,9 @@ impl Hypocycloid {
 
         commands.insert_resource(Points { points: Vec::with_capacity(200_000)});
 
+
+        commands.spawn(HypocycloidTracking::new(inner_circle_radius, outer_circle_radius, Transform::from_translation(Vec3::ZERO)));
+        
         commands.spawn((
             PbrBundle {
                 mesh: meshes.add(
@@ -138,6 +203,7 @@ impl Hypocycloid {
         }
     }
 
+    /// Update all the transforms
     fn update_pos2(
         mut points: ResMut<Points>,
         // rolling_circle: Query<(& mut Transform, &RollingCircle)>, //(With<RollingCircle>, Without<TracePoint>, Without<TraceLine>)>,
@@ -182,6 +248,7 @@ impl Hypocycloid {
         points.points.push(tracepoint.translation());
     }
 
+    /// Draw the path that the trace point took
     fn draw_track(
         points: Res<Points>,
         color_override: Res<OverrideColor>,
@@ -202,7 +269,7 @@ impl Hypocycloid {
             let angle = (i as f32).to_radians() / 14.0;
 
             // Check if the color is overridden
-            if color_override.overrided {
+            if color_override.overrode {
                 draw.line(points[i-1], points[i], color_override.override_color);
                 continue;
             }
@@ -218,6 +285,87 @@ impl Hypocycloid {
             ));
         }
     }
+
+    /// update the position of the tracer using the new tracking system
+    fn update_new_tracker(
+        mut tracker: Query<&mut HypocycloidTracking>,
+
+    ){
+        let mut tracker = tracker.single_mut();
+
+        // rotate the inner circle and all connected components along the outer circle track
+        // this is not rotating the inner circle itself yet
+        let hypocycloid_origin = tracker.outer_circle_xform.translation;
+        let angle = Quat::from_rotation_z(hypocycloid_config::CIRLCE_ROT_RATE);
+        tracker.inner_circle_xform.rotate_around(hypocycloid_origin, angle);
+        tracker.trace_point_xform.rotate_around(hypocycloid_origin, angle);
+        tracker.trace_line_xform.rotate_around(hypocycloid_origin, angle);
+
+        // rotate the traceline and all connected components
+        // I should technically be rotating the inner circle as well but because its a circle
+        // it doesnt change anything visually so ignoring for now
+        let inner_circle_origin = tracker.inner_circle_xform.translation;
+        let angle = Quat::from_rotation_z(hypocycloid_config::LINE_ROT_RATE); 
+        tracker.trace_line_xform.rotate_around(inner_circle_origin, angle);
+        tracker.trace_point_xform.rotate_around(inner_circle_origin, angle);
+
+        tracker.inner_circle_xform.rotation = tracker.inner_circle_xform.rotation.normalize();
+        tracker.trace_point_xform.rotation = tracker.inner_circle_xform.rotation.normalize();
+        tracker.trace_line_xform.rotation = tracker.inner_circle_xform.rotation.normalize();
+
+        let final_point_trans = tracker.trace_point_xform.translation;
+        tracker.trace_points.push(final_point_trans);
+
+
+    }
+
+    fn draw_new_gizmos_and_move_meshes(
+        mut gizmos: Gizmos,
+    ) {
+        // you need to undo the parent child hierachy or it wont work.
+    }
+
+    /// Draw the new track using the points in `HypocycloidTracking`
+    fn draw_new_track(
+        tracker: Query<&HypocycloidTracking>,
+        color_override: Res<OverrideColor>,
+        mut draw : Gizmos,
+    ) {
+         // Different phases that could be used 
+         let a60 = PI/3.0;
+         let a120 = PI/3.0*2.0;
+         let a180 = PI;
+ 
+         // Get the points
+         let points = &tracker.single().trace_points;
+         let len_points = points.len();
+         if len_points % 1000 == 0 && len_points != 0 {
+            println!("len points is {}", len_points);
+         }
+         // println!("{len_points}");
+ 
+         for i in 1..len_points {
+             // Get the angle and scale down so less repetition
+             let angle = (i as f32).to_radians() / 14.0;
+ 
+             // Check if the color is overridden
+             if color_override.overrode {
+                 draw.line(points[i-1], points[i], color_override.override_color);
+                 continue;
+             }
+ 
+             // draw the line with the color
+             // use desmos to plot the rgb lines with the amp and offset and phase angle to
+             // see roughly what your color pattern will look like.
+             draw.line(points[i-1], points[i], Color::srgba(
+                 f32::sin(angle + a60) *0.5+0.5, 
+                 f32::sin(angle + a180)*0.5 + 0.5, 
+                 f32::sin(angle)*0.5+0.5,
+                 1.0
+             ));
+         }
+    }
+
 }
 
 //////////////////////////////////////////
@@ -245,12 +393,14 @@ fn update_gizmo_config(
 ) {
     let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
 
+    let interval:f32 = 200.0;
+
     if keyboard.pressed(KeyCode::Space) && !keyboard.pressed(KeyCode::ShiftLeft) {
-        config.line_width += 30. * time.delta_seconds();
+        config.line_width += interval * time.delta_seconds();
     }
 
     if keyboard.all_pressed([KeyCode::Space, KeyCode::ShiftLeft]){
-        config.line_width -= 30. * time.delta_seconds();
+        config.line_width -= interval * time.delta_seconds();
         if config.line_width < 1.0 {
             config.line_width = 1.0;
         }
