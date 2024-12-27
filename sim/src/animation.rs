@@ -82,6 +82,7 @@ impl Plugin for Hypocycloid {
     fn build(&self, app: &mut App) {
 
         const START_DELAY: f32 = 2.0;
+        const FIXED_INTERVAL:f64 = 0.0005;
 
         // https://github.com/jakobhellermann/bevy-inspector-egui/tree/v0.27.0
         app.init_resource::<OverrideColor>();
@@ -92,8 +93,9 @@ impl Plugin for Hypocycloid {
         app.add_systems(Startup, Self::setup_scene);
         
         // new system
-        app.insert_resource(Time::<Fixed>::from_seconds(0.0005));
+        app.insert_resource(Time::<Fixed>::from_seconds(FIXED_INTERVAL));
         app.add_systems(FixedUpdate, Self::update_new_tracker.run_if(repeating_after_delay(Duration::from_secs_f32(START_DELAY))));
+        app.add_systems(Update, update_fixed_time);
         app.add_systems(Update, Self::draw_new_track);
         app.add_systems(Update, Self:: draw_new_gizmos_and_move_meshes);
 
@@ -104,6 +106,7 @@ impl Plugin for Hypocycloid {
         // Axes gizmos and gizmo config
         // app.add_systems(Update, Self::draw_gizmos);
         app.add_systems(Update, update_gizmo_config);
+
     }
 }
 
@@ -407,5 +410,34 @@ fn update_gizmo_config(
     }
 }
 
+//////////////////////////////////////////
+// TIME CONFIG CODE
+//////////////////////////////////////////
 
+fn update_fixed_time(
+    mut time: ResMut<Time<Fixed>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+) {
+    let mut interval:f32 = 0.001;
+
+    if keyboard.pressed(KeyCode::ShiftLeft) {
+        interval = 0.0001;
+    }
+
+    let mut timestep = time.timestep().as_secs_f32();
+
+    // speed up simulation
+    if keyboard.pressed(KeyCode::KeyF) {
+        timestep = (timestep - interval).clamp(0.0001, 0.5);
+        println!("timestep is {}", timestep);
+    }
+
+    // slow down simulation
+    if keyboard.pressed(KeyCode::KeyR) {
+        timestep = (timestep + interval).clamp(0.0001, 0.5);
+        println!("timestep is {}", timestep);
+    }
+
+    time.set_timestep(Duration::from_secs_f32(timestep));
+}
 
