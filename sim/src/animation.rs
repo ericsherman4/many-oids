@@ -96,6 +96,7 @@ impl Plugin for Hypocycloid {
         app.add_systems(Update, update_fixed_time);
         app.add_systems(Update, Self::draw_new_track);
         app.add_systems(Update, Self:: update_mesh_pos);
+        app.add_systems(Update, Self::hide_meshes);
         
         // Axes gizmos and gizmo config
         app.add_systems(Update, Self::draw_gizmos);
@@ -114,7 +115,7 @@ impl Hypocycloid {
     ) {
         let outer_circle_radius = hypocycloid_config::OUTER_RAD;
         let inner_circle_radius = hypocycloid_config::INNER_RAD;
-        let mesh_thickness = 0.1;
+        let mesh_thickness = 0.5;
 
 
         let hypocycloid = HypocycloidTracking::new(inner_circle_radius, outer_circle_radius, Transform::from_translation(Vec3::ZERO).with_rotation(Quat::from_rotation_x(PI/2.0)));
@@ -173,7 +174,7 @@ impl Hypocycloid {
         commands.spawn((
             PbrBundle {
                 visibility: Visibility::Visible,
-                mesh : meshes.add(Sphere::default()),             
+                mesh : meshes.add(Sphere {radius:mesh_thickness*1.2, ..default()}),             
                 transform: hypocycloid.trace_point_xform,
                 ..default()
             },
@@ -181,6 +182,8 @@ impl Hypocycloid {
         ));
 
         commands.spawn(hypocycloid);
+        commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
+        commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(-Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
 
     }
 
@@ -199,39 +202,38 @@ impl Hypocycloid {
 
     /// update the position of the tracer using the new tracking system
     fn update_new_tracker(
-        mut tracker: Query<&mut HypocycloidTracking>,
+        mut tracker_query: Query<&mut HypocycloidTracking>,
 
     ){
-        let mut tracker = tracker.single_mut();
-
-        // rotate the inner circle and all connected components along the outer circle track
-        // this is not rotating the inner circle itself yet
-        let hypocycloid_origin = tracker.outer_circle_xform.translation;
-        let angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(), hypocycloid_config::CIRLCE_ROT_RATE);
-        tracker.inner_circle_xform.rotate_around(hypocycloid_origin, angle);
-        tracker.trace_point_xform.rotate_around(hypocycloid_origin, angle);
-        tracker.trace_line_xform.rotate_around(hypocycloid_origin, angle);
-
-        // rotate the traceline and all connected components
-        // TODO: I should technically be rotating the inner circle as well but because its a circle
-        // it doesnt change anything visually so ignoring for now
-        let inner_circle_origin = tracker.inner_circle_xform.translation;
-        let angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(),hypocycloid_config::LINE_ROT_RATE); 
-        tracker.trace_line_xform.rotate_around(inner_circle_origin, angle);
-        tracker.trace_point_xform.rotate_around(inner_circle_origin, angle);
-
-        tracker.inner_circle_xform.rotation = tracker.inner_circle_xform.rotation.normalize();
-        tracker.trace_point_xform.rotation = tracker.trace_point_xform.rotation.normalize();
-        tracker.trace_line_xform.rotation = tracker.trace_line_xform.rotation.normalize();
-
-        let final_point_trans = tracker.trace_point_xform.translation;
-        tracker.trace_points.push(final_point_trans);
-
+        for mut tracker in tracker_query.iter_mut() {
+            // rotate the inner circle and all connected components along the outer circle track
+            // this is not rotating the inner circle itself yet
+            let hypocycloid_origin = tracker.outer_circle_xform.translation;
+            let angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(), hypocycloid_config::CIRLCE_ROT_RATE);
+            tracker.inner_circle_xform.rotate_around(hypocycloid_origin, angle);
+            tracker.trace_point_xform.rotate_around(hypocycloid_origin, angle);
+            tracker.trace_line_xform.rotate_around(hypocycloid_origin, angle);
+    
+            // rotate the traceline and all connected components
+            // TODO: I should technically be rotating the inner circle as well but because its a circle
+            // it doesnt change anything visually so ignoring for now
+            let inner_circle_origin = tracker.inner_circle_xform.translation;
+            let angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(),hypocycloid_config::LINE_ROT_RATE); 
+            tracker.trace_line_xform.rotate_around(inner_circle_origin, angle);
+            tracker.trace_point_xform.rotate_around(inner_circle_origin, angle);
+    
+            tracker.inner_circle_xform.rotation = tracker.inner_circle_xform.rotation.normalize();
+            tracker.trace_point_xform.rotation = tracker.trace_point_xform.rotation.normalize();
+            tracker.trace_line_xform.rotation = tracker.trace_line_xform.rotation.normalize();
+    
+            let final_point_trans = tracker.trace_point_xform.translation;
+            tracker.trace_points.push(final_point_trans);
+        }
     }
 
     /// Draw the new track using the points in `HypocycloidTracking`
     fn draw_new_track(
-        tracker: Query<&HypocycloidTracking>,
+        tracker_query: Query<&HypocycloidTracking>,
         color_override: Res<OverrideColor>,
         mut draw : Gizmos,
     ) {
@@ -239,35 +241,56 @@ impl Hypocycloid {
          let a60 = PI/3.0;
          let a120 = PI/3.0*2.0;
          let a180 = PI;
- 
-         // Get the points
-         let points = &tracker.single().trace_points;
-         let len_points = points.len();
-         if len_points % 1000 == 0 && len_points != 0 {
-            println!("len points is {}", len_points);
-         }
-         // println!("{len_points}");
- 
-         for i in 1..len_points {
-             // Get the angle and scale down so less repetition
-             let angle = (i as f32).to_radians() / 14.0;
- 
-             // Check if the color is overridden
-             if color_override.overrode {
-                 draw.line(points[i-1], points[i], color_override.override_color);
-                 continue;
+
+         for tracker in tracker_query.iter() {
+             // Get the points
+            let points = &tracker.trace_points;
+            let len_points = points.len();
+            if len_points % 1000 == 0 && len_points != 0 {
+                println!("len points is {}", len_points);
+            }
+            // println!("{len_points}");
+             for i in 1..len_points {
+                 // Get the angle and scale down so less repetition
+                 let angle = (i as f32).to_radians() / 14.0;
+     
+                 // Check if the color is overridden
+                 if color_override.overrode {
+                     draw.line(points[i-1], points[i], color_override.override_color);
+                     continue;
+                 }
+     
+                 // draw the line with the color
+                 // use desmos to plot the rgb lines with the amp and offset and phase angle to
+                 // see roughly what your color pattern will look like.
+                 draw.line(points[i-1], points[i], Color::srgba(
+                     f32::sin(angle + a60) *0.5+0.5, 
+                     f32::sin(angle + a180)*0.5 + 0.5, 
+                     f32::sin(angle)*0.5+0.5,
+                     1.0
+                 ));
              }
- 
-             // draw the line with the color
-             // use desmos to plot the rgb lines with the amp and offset and phase angle to
-             // see roughly what your color pattern will look like.
-             draw.line(points[i-1], points[i], Color::srgba(
-                 f32::sin(angle + a60) *0.5+0.5, 
-                 f32::sin(angle + a180)*0.5 + 0.5, 
-                 f32::sin(angle)*0.5+0.5,
-                 1.0
-             ));
          }
+    }
+
+    fn hide_meshes(
+        keyboard: Res<ButtonInput<KeyCode>>,
+        mut vis_query: Query<&mut Visibility, Or<(With<RollingCircle>, With<TracePoint>,With<TraceLine>,With<OuterCircle>)>>,
+    ) 
+    {
+        if keyboard.just_pressed(KeyCode::KeyH) {
+            println!("changing vis");
+            for mut vis in vis_query.iter_mut() {
+                if *vis == Visibility::Hidden {
+                    *vis = Visibility::Visible;
+                    println!("making vis");
+                }
+                else {
+                    *vis = Visibility::Hidden;
+                    println!("making hidden");
+                }
+            }
+        }
     }
 
     fn update_mesh_pos(
@@ -275,6 +298,9 @@ impl Hypocycloid {
         // trace_point: Query<(& mut Transform,&TracePoint)>, //(With<TracePoint>, Without<TraceLine>, Without<RollingCircle>)>,
         // trace_line: Query<(& mut Transform,&TraceLine)>, //(With<TraceLine>, Without<TracePoint>, Without<RollingCircle>)>,
         // replace these with param sets! way too annoying to create disjointed queries
+
+        //another option is Query<&mut Transform, Or<(With<RollingCircle>, With<TracePoint>,With<TraceLine>,With<OuterCircle>)>>,
+        // which will get all of the transforms
         
         // An alternative to the below solution would be to have 3 different functions each which update one thing.
         // This means you wont need to any the queries being disjoint because all of them would have one query.
@@ -284,27 +310,26 @@ impl Hypocycloid {
             Query<&mut Transform, With<TraceLine>>,
             Query<&mut Transform, With<OuterCircle>>
         )>,
-        tracker: Query<&HypocycloidTracking>,        
+        tracker_query: Query<&HypocycloidTracking>,        
     ){
-        let tracker = tracker.single();
-
-        let mut param = set.p0();
-        let mut obj = param.single_mut();
-        *obj = tracker.inner_circle_xform;
-
-        let mut param = set.p1();
-        let mut obj = param.single_mut();
-        *obj = tracker.trace_point_xform;
-
-        let mut param = set.p2();
-        let mut obj = param.single_mut();
-        *obj = tracker.trace_line_xform;
-
-        let mut param = set.p3();
-        let mut obj = param.single_mut();
-        *obj = tracker.outer_circle_xform;
+        for tracker in tracker_query.iter() {
+            let mut param = set.p0();
+            let mut obj = param.single_mut();
+            *obj = tracker.inner_circle_xform;
+    
+            let mut param = set.p1();
+            let mut obj = param.single_mut();
+            *obj = tracker.trace_point_xform;
+    
+            let mut param = set.p2();
+            let mut obj = param.single_mut();
+            *obj = tracker.trace_line_xform;
+    
+            let mut param = set.p3();
+            let mut obj = param.single_mut();
+            *obj = tracker.outer_circle_xform;
+        }
     }
-
 }
 
 //////////////////////////////////////////
