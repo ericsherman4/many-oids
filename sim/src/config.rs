@@ -3,9 +3,9 @@ pub mod colors_config {
     use bevy::prelude::Color;
     use bevy::prelude::Srgba;
 
-    pub const BLUE: Color = Color::Srgba(Srgba::BLUE);
-    pub const GREEN: Color = Color::Srgba(Srgba::GREEN);
-    pub const RED: Color = Color::Srgba(Srgba::RED);
+    // pub const BLUE: Color = Color::Srgba(Srgba::BLUE);
+    // pub const GREEN: Color = Color::Srgba(Srgba::GREEN);
+    // pub const RED: Color = Color::Srgba(Srgba::RED);
 
     /// Get a color from a hex string
     pub fn get_color(hex: &str) -> Color {
