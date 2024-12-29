@@ -155,6 +155,7 @@ pub struct CustomCameraPlugin;
 impl Plugin for CustomCameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, Self::create_camera);
+        app.add_systems(Update, Self::lock_camera);
     }
 }
 
@@ -185,5 +186,18 @@ impl CustomCameraPlugin {
         );
 
         commands.spawn(bevy_camera).insert(unreal_camera);
+    }
+
+    fn lock_camera(
+        mut camera_controller: Query<&mut UnrealCameraController>,
+        keyboard: Res<ButtonInput<KeyCode>>,
+    ) {
+        if keyboard.just_pressed(KeyCode::KeyL){
+            for mut cam in camera_controller.iter_mut() {
+                cam.enabled ^= true;
+                println!("Cam is now {}", cam.enabled)
+            }
+        }
+
     }
 }
