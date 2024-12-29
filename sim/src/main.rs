@@ -17,9 +17,8 @@ fn main() {
             LookTransformPlugin,
             UnrealCameraPlugin::default(),
             scene::CustomLightsPlugin,
-            // scene::OriginPlugin,
+            scene::OriginPlugin,
             scene::CustomCameraPlugin,
-            // animation::HypocycloidTest,
             animation:: Hypocycloid,
         ))
         .run();

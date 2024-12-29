@@ -1,83 +1,20 @@
-use std::{array, f32::consts::PI};
-
-use bevy::{prelude::*, render::mesh::TorusMeshBuilder};
-
+use std::{f32::consts::PI, time::Duration};
+use bevy::{prelude::*, render::mesh::TorusMeshBuilder, time::common_conditions::repeating_after_delay};
 use crate::config::hypocycloid_config;
+use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 
-pub struct HypocycloidTest;
-impl Plugin for HypocycloidTest {
-    fn build(&self, app: &mut App) {
-        app.add_systems(Update, config_gizmo);
-        app.add_systems(Update, update_gizmo_config);
-        app.add_systems(Update, Self::spawn_self);
-    }
+
+/// A resource that will override the color of the hypocycloid 
+#[derive(Reflect,Resource, Default)]
+#[reflect(Resource)]
+struct OverrideColor {
+    /// Will override the color if true
+    overrode: bool,
+
+    /// The override color
+    override_color: Color,
 }
 
-impl HypocycloidTest {
-
-    /// Spawn the components of the hypocycloid
-    fn spawn_self(
-        mut _commands:Commands,
-        mut _meshes: ResMut<Assets<Mesh>>,
-        mut _materials: ResMut<Assets<StandardMaterial>>,
-        mut draw: Gizmos
-    ) {
-        for i in 0..30 {
-            draw.line_gradient(
-                Vec3::splat(i as f32),
-                Vec3::splat((i+1) as f32), 
-                Color::srgb_from_array([i as f32 / 2.0, i as f32 / 4.0, i as f32 / 6.0]),
-                Color::srgb_from_array([i as f32 / 4.0, i as f32 / 6.0, i as f32 / 8.0])
-            );
-        }
-
-        // this doesn't work as i thought it would, only draws straight lines?
-        draw.linestrip_gradient(
-            // https://stackoverflow.com/questions/53688202/does-rust-have-an-equivalent-to-pythons-dictionary-comprehension-syntax
-            (0..40).map(|i| (Vec3::new(i as f32 *2., i as f32 *3., i as f32*10.), Color::srgb(i as f32 /10., i as f32/10., i as f32/10.)))
-            // (0..40).map(|i| (Vec3::splat(i as f32 * i as f32), Color::Srgba(Srgba::WHITE)))
-        );
-
-
-
-        // does nothing
-        // (0..30).map(|i| draw.line(Vec3::splat(i as f32 * i as f32), Vec3::splat((i + 1) as f32 * (i+1) as f32), Color::WHITE));
-
-
-
-        for j in 0..200{
-            for i in 0..40{
-                draw.line(Self::super_vec(i,j), Self::super_vec(i+1,j), Color::srgb_from_array([j as f32 /255., i as f32 /255., 1. - j as f32 /255.]))
-            }        
-        }
-
-        // not a great choice because you need an array which has to of fixed size at compile time.
-        // some hacks exist for getting a vec into an array
-        draw.primitive_3d(&Polyline3d {
-            vertices: array::from_fn::<Vec3, 30, _>(|i| Self::super_vec_f(i as f32*0.3, -20.0))
-        }, Vec3::ZERO, Quat::default(), Color::srgb(1.0, 0.5, 0.0));
-    }
-
-    fn super_vec(i: u32, offset: u32) -> Vec3
-    {
-        let i = i as f32;
-        Vec3::new(i*i + offset as f32, i*i*i, i*i*i*i)
-    }
-
-    fn super_vec_f(i: f32, offset: f32) -> Vec3
-    {
-        let i = i;
-        Vec3::new(i*i + offset, i*i*i, i*i*i*i)
-    }
-}
-
-//////////////////////////////////////////
-//////////////////////////////////////////
-//////////////////////////////////////////
-#[derive(Resource)]
-struct Points{
-    points: Vec<Vec3>
-}
 #[derive(Component)]
 struct OuterCircle;
 #[derive(Component, Debug)]
@@ -87,29 +24,101 @@ struct TraceLine;
 #[derive(Component, Debug)]
 struct TracePoint;
 
+
+#[derive(Component, Debug)]
+struct HypocycloidTracking {
+    /// the center of the outer circle
+    outer_circle_xform: Transform,
+
+    /// the center of the inner circle
+    inner_circle_xform: Transform,
+
+    /// transform of the trace point
+    trace_point_xform: Transform, 
+
+    /// transform of the trace line
+    /// this is not necessary in terms of pure items that are needed to determine tracker position
+    /// but is necessary if you want visuals of all the components.
+    /// this stores the transform of the CENTER of the traceline
+    trace_line_xform: Transform, 
+
+    /// struct to hold all previous positions
+    trace_points: Vec<Vec3>, // could convert to drawing cylinders instead
+}
+
+impl HypocycloidTracking {
+    fn new(inner_rad: f32, outer_rad:f32, starting_xform: Transform) -> Self {
+
+        // minus x because currently the camera is looking at the origin from behind the x/y plane
+        let mut inner_circle_xform = starting_xform;
+        inner_circle_xform.translation.x += -1.0 * (outer_rad - inner_rad);
+
+        let mut trace_point_xform = starting_xform;
+        trace_point_xform.translation.x += -1.0* outer_rad;
+
+        let mut trace_line_xform = starting_xform;
+        trace_line_xform.translation.x += -1.0*  (outer_rad - 0.5*inner_rad);
+
+
+        HypocycloidTracking{
+            outer_circle_xform: starting_xform,
+            inner_circle_xform:  inner_circle_xform,
+            trace_line_xform: trace_line_xform,
+            trace_point_xform: trace_point_xform,
+
+            trace_points: Vec::with_capacity(200_000),
+        }
+    }
+
+    //provide the ID as a lookup to get the transform
+}
+
+
 pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, update_gizmo_config);
+
+        const START_DELAY: f32 = 2.0;
+        const FIXED_INTERVAL:f64 = 0.01;
+
+        // https://github.com/jakobhellermann/bevy-inspector-egui/tree/v0.27.0
+        app.init_resource::<OverrideColor>();
+        app.register_type::<OverrideColor>();
+        app.add_plugins(ResourceInspectorPlugin::<OverrideColor>::default());
+
+        // setup
+        app.add_systems(Startup, config_gizmo);
         app.add_systems(Startup, Self::setup_scene);
-        app.add_systems(Update, Self::update_pos);
-        app.add_systems(Update, Self::draw_track);
+        
+        // new system
+        app.insert_resource(Time::<Fixed>::from_seconds(FIXED_INTERVAL));
+        app.add_systems(FixedUpdate, Self::update_new_tracker.run_if(repeating_after_delay(Duration::from_secs_f32(START_DELAY))));
+        app.add_systems(Update, update_fixed_time);
+        app.add_systems(Update, Self::draw_new_track);
+        app.add_systems(Update, Self:: update_mesh_pos);
+        app.add_systems(Update, Self::hide_meshes);
+        
+        // Axes gizmos and gizmo config
+        app.add_systems(Update, Self::draw_gizmos);
+        app.add_systems(Update, update_gizmo_config);
+
     }
 }
 
 impl Hypocycloid {
 
+    /// Spawn all the meshes in the right hierarchy
     fn setup_scene(
         mut commands: Commands,
         mut meshes: ResMut<Assets<Mesh>>,
         mut materials: ResMut<Assets<StandardMaterial>>,
     ) {
-
         let outer_circle_radius = hypocycloid_config::OUTER_RAD;
-        let torus_tube_radius = 0.1;
         let inner_circle_radius = hypocycloid_config::INNER_RAD;
+        let mesh_thickness = 0.5;
 
-        commands.insert_resource(Points { points: Vec::with_capacity(200_000)});
+
+        let hypocycloid = HypocycloidTracking::new(inner_circle_radius, outer_circle_radius, Transform::from_translation(Vec3::ZERO).with_rotation(Quat::from_rotation_x(PI/2.0)));
 
         commands.spawn((
             PbrBundle {
@@ -117,15 +126,15 @@ impl Hypocycloid {
                     TorusMeshBuilder {
                         torus: Torus{
                             major_radius: outer_circle_radius,
-                            minor_radius: torus_tube_radius,
+                            minor_radius: mesh_thickness,
                         },
                         major_resolution: 100,
                         ..default()
                     }
                 ),
                 material: materials.add(Color::WHITE),
-                transform : Transform::from_rotation(Quat::from_rotation_x(PI/2.0)),
-                visibility: Visibility::Hidden,
+                transform : hypocycloid.outer_circle_xform,
+                visibility: Visibility::Visible,
                 ..default()
             },
             OuterCircle,
@@ -137,7 +146,7 @@ impl Hypocycloid {
                     TorusMeshBuilder {
                         torus: Torus {
                             major_radius: inner_circle_radius,
-                            minor_radius: torus_tube_radius
+                            minor_radius: mesh_thickness
                         },
                         major_resolution: 100,
                         ..default()
@@ -146,137 +155,188 @@ impl Hypocycloid {
                 material: materials.add(Color::srgb(1.0, 0.0, 0.0)),
                 // because of this rotation, you are rotating the coordinate frame of all the children.
                 // so now instead of z pointing in /out of the screen, y does. 
-                transform: Transform::from_xyz(outer_circle_radius -inner_circle_radius, 0.0, 0.0).with_rotation(Quat::from_rotation_x(PI/2.0)),
+                transform: hypocycloid.inner_circle_xform,
                 ..default()
             },
             RollingCircle
-        )).with_children(
-            |parent| {
-                parent.spawn((
-                    PbrBundle {
-                        mesh:  meshes.add(Cuboid::from_size(Vec3::new(inner_circle_radius, 0.1,0.1))),
-                        material: materials.add(Color::WHITE),
-                        transform : Transform::from_xyz(inner_circle_radius*0.5, 0.0,0.0), // 0,0,0 in this case is center of parent
-                        ..default()
-                    }, 
-                    TraceLine
-                )).with_children(
-                    |parent| {
-                        parent.spawn((
-                            PbrBundle {
-                                visibility: Visibility::Visible,
-                                mesh : meshes.add(Sphere::default()),             
-                                // from the reference frame of the stick. so need minus half length of stick or rad/2
-                                transform: Transform::from_xyz(inner_circle_radius*0.5, 0.0, 0.0),
-                                ..default()
-                            },
-                            TracePoint
-                        ));
-                    }
-                );
-            }
-        );
+        ));
+
+        commands.spawn((
+            PbrBundle {
+                mesh:  meshes.add(Cuboid::from_size(Vec3::new(inner_circle_radius,mesh_thickness,mesh_thickness))),
+                material: materials.add(Color::WHITE),
+                transform :  hypocycloid.trace_line_xform,
+                ..default()
+            }, 
+            TraceLine
+        ));
+
+        commands.spawn((
+            PbrBundle {
+                visibility: Visibility::Visible,
+                mesh : meshes.add(Sphere {radius:mesh_thickness*1.2, ..default()}),             
+                transform: hypocycloid.trace_point_xform,
+                ..default()
+            },
+            TracePoint
+        ));
+
+        commands.spawn(hypocycloid);
+        commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
+        commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(-Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
+
     }
+
+    /// Draw gizmos for the meshes
+    fn draw_gizmos(
+        mut draw: Gizmos,
+        // Normally, doing (With<X>, With<Y>, With<Z>) will use an AND. So it will get global transform's that have all 3 components.
+        // Using Or means it will get a GlobalTransform IF it has either X, Y, or Z component.
+        transforms: Query<&GlobalTransform, Or<(With<TraceLine>, With<TracePoint>, With<RollingCircle>)>>,
+        
+    ){
+        for &transform in transforms.iter() {
+            draw.axes(transform, 3.0);
+        }
+    }
+
+    /// update the position of the tracer using the new tracking system
+    fn update_new_tracker(
+        mut tracker_query: Query<&mut HypocycloidTracking>,
+
+    ){
+        for mut tracker in tracker_query.iter_mut() {
+            // rotate the inner circle and all connected components along the outer circle track
+            // this is not rotating the inner circle itself yet
+            let hypocycloid_origin = tracker.outer_circle_xform.translation;
+            let angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(), hypocycloid_config::CIRLCE_ROT_RATE);
+            tracker.inner_circle_xform.rotate_around(hypocycloid_origin, angle);
+            tracker.trace_point_xform.rotate_around(hypocycloid_origin, angle);
+            tracker.trace_line_xform.rotate_around(hypocycloid_origin, angle);
     
-    fn update_pos(
-        time: Res<Time>,
-        mut query: Query<(&mut Children, &mut Transform), With<RollingCircle>>,
-        mut child_query: Query<(&mut TraceLine, &mut Transform, &GlobalTransform), Without<RollingCircle>>,
-        mut trace_point : Query<(&TracePoint, &GlobalTransform), (Without<RollingCircle>, Without<TraceLine>)>,
-        mut draw : Gizmos,
-        mut points: ResMut<Points>,
-    ) {
-        
-        let mut children = query.single_mut();
-
-        let rot_ang_circle = hypocycloid_config::CIRLCE_ROT_RATE + time.elapsed_seconds() / 100.;
-        // let rot_ang_line = hypocycloid_config::LINE_ROT_RATE;
-        let rot_ang_line = -hypocycloid_config::K* rot_ang_circle;
-
-        children.1.rotate_around(Vec3::ZERO, Quat::from_rotation_z(rot_ang_circle));
-        if ! children.1.rotation.is_normalized() {
-            children.1.rotation = children.1.rotation.normalize();
-            println!("children 1 not normalized");
+            // rotate the traceline and all connected components
+            // TODO: I should technically be rotating the inner circle as well but because its a circle
+            // it doesnt change anything visually so ignoring for now
+            let inner_circle_origin = tracker.inner_circle_xform.translation;
+            let angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(),hypocycloid_config::LINE_ROT_RATE); 
+            tracker.trace_line_xform.rotate_around(inner_circle_origin, angle);
+            tracker.trace_point_xform.rotate_around(inner_circle_origin, angle);
+    
+            tracker.inner_circle_xform.rotation = tracker.inner_circle_xform.rotation.normalize();
+            tracker.trace_point_xform.rotation = tracker.trace_point_xform.rotation.normalize();
+            tracker.trace_line_xform.rotation = tracker.trace_line_xform.rotation.normalize();
+    
+            let final_point_trans = tracker.trace_point_xform.translation;
+            tracker.trace_points.push(final_point_trans);
         }
-        draw.axes(*children.1, 2.0);
-
-        // this is the traceline, bad names
-        let mut traceline = child_query.single_mut().1;
-        traceline.rotate_around(Vec3::ZERO, Quat::from_rotation_y(rot_ang_line));
-
-        if ! traceline.rotation.is_normalized() {
-            traceline.rotation = traceline.rotation.normalize();
-            println!("traceline not normalized");
-        }
-
-        draw.axes(*child_query.single().2, 2.0);
-
-        let mut tracepoint = trace_point.single_mut();
-        // tracepoint.1.translation.x = 3.0*f32::sin(time.elapsed_seconds());
-        // println!("{}", tracepoint.1.translation());
-
-        points.points.push(tracepoint.1.translation());
-        
-        draw.axes(*tracepoint.1, 5.0 );
     }
 
-    fn draw_track(
-        points: Res<Points>,
+    /// Draw the new track using the points in `HypocycloidTracking`
+    fn draw_new_track(
+        tracker_query: Query<&HypocycloidTracking>,
+        color_override: Res<OverrideColor>,
         mut draw : Gizmos,
-        time: Res<Time>
     ) {
-        let points = &points.points;
-        // let elasped = time.elapsed_seconds();
-        let elasped = 0.0;
-        let a60 = PI/3.0;
-        let a120 = PI/3.0*2.0;
-        let a180 = PI;
-        let len_points = points.len();
-        println!("{len_points}");
-        // let len = points.len();
-        for i in 1..len_points {
-            let angle = elasped + (i as f32).to_radians();
+         // Different phases that could be used 
+         let a60 = PI/3.0;
+         let a120 = PI/3.0*2.0;
+         let a180 = PI;
 
-            draw.line(points[i-1], points[i], Color::srgba(
-                f32::sin(angle/2.0) *0.5+1., 
-                // f32::sin(angle + a180)*0.5+1., 
-                0.0, 
-                f32::sin(angle/2.0 + a120)*0.5+1.,
-                0.5
-            ));
-            // draw.line(points[i-1], points[i], Color::srgba(1.0,0.0,0.0, 0.5));
-        }
-
+         for tracker in tracker_query.iter() {
+             // Get the points
+            let points = &tracker.trace_points;
+            let len_points = points.len();
+            if len_points % 1000 == 0 && len_points != 0 {
+                println!("len points is {}", len_points);
+            }
+            // println!("{len_points}");
+             for i in 1..len_points {
+                 // Get the angle and scale down so less repetition
+                 let angle = (i as f32).to_radians() / 14.0;
+     
+                 // Check if the color is overridden
+                 if color_override.overrode {
+                     draw.line(points[i-1], points[i], color_override.override_color);
+                     continue;
+                 }
+     
+                 // draw the line with the color
+                 // use desmos to plot the rgb lines with the amp and offset and phase angle to
+                 // see roughly what your color pattern will look like.
+                 draw.line(points[i-1], points[i], Color::srgba(
+                     f32::sin(angle + a60) *0.5+0.5, 
+                     f32::sin(angle + a180)*0.5 + 0.5, 
+                     f32::sin(angle)*0.5+0.5,
+                     1.0
+                 ));
+             }
+         }
     }
 
+    fn hide_meshes(
+        keyboard: Res<ButtonInput<KeyCode>>,
+        mut vis_query: Query<&mut Visibility, Or<(With<RollingCircle>, With<TracePoint>,With<TraceLine>,With<OuterCircle>)>>,
+    ) 
+    {
+        if keyboard.just_pressed(KeyCode::KeyH) {
+            println!("changing vis");
+            for mut vis in vis_query.iter_mut() {
+                if *vis == Visibility::Hidden {
+                    *vis = Visibility::Visible;
+                    println!("making vis");
+                }
+                else {
+                    *vis = Visibility::Hidden;
+                    println!("making hidden");
+                }
+            }
+        }
+    }
+
+    fn update_mesh_pos(
+        // rolling_circle: Query<(& mut Transform, &RollingCircle)>, //(With<RollingCircle>, Without<TracePoint>, Without<TraceLine>)>,
+        // trace_point: Query<(& mut Transform,&TracePoint)>, //(With<TracePoint>, Without<TraceLine>, Without<RollingCircle>)>,
+        // trace_line: Query<(& mut Transform,&TraceLine)>, //(With<TraceLine>, Without<TracePoint>, Without<RollingCircle>)>,
+        // replace these with param sets! way too annoying to create disjointed queries
+
+        //another option is Query<&mut Transform, Or<(With<RollingCircle>, With<TracePoint>,With<TraceLine>,With<OuterCircle>)>>,
+        // which will get all of the transforms
+        
+        // An alternative to the below solution would be to have 3 different functions each which update one thing.
+        // This means you wont need to any the queries being disjoint because all of them would have one query.
+        mut set: ParamSet<(
+            Query<&mut Transform, With<RollingCircle>>,
+            Query<&mut Transform, With<TracePoint>>,
+            Query<&mut Transform, With<TraceLine>>,
+            Query<&mut Transform, With<OuterCircle>>
+        )>,
+        tracker_query: Query<&HypocycloidTracking>,        
+    ){
+        for tracker in tracker_query.iter() {
+            let mut param = set.p0();
+            let mut obj = param.single_mut();
+            *obj = tracker.inner_circle_xform;
+    
+            let mut param = set.p1();
+            let mut obj = param.single_mut();
+            *obj = tracker.trace_point_xform;
+    
+            let mut param = set.p2();
+            let mut obj = param.single_mut();
+            *obj = tracker.trace_line_xform;
+    
+            let mut param = set.p3();
+            let mut obj = param.single_mut();
+            *obj = tracker.outer_circle_xform;
+        }
+    }
 }
 
 //////////////////////////////////////////
+// GIZMO CONFIG CODE
 //////////////////////////////////////////
-//////////////////////////////////////////
 
-
-// SHARED GIZMO CONFIG CODE
-
-fn update_gizmo_config(
-    mut config_store: ResMut<GizmoConfigStore>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-) {
-    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
-
-    if keyboard.pressed(KeyCode::Space) && !keyboard.pressed(KeyCode::ShiftLeft) {
-        config.line_width += 30. * time.delta_seconds();
-    }
-
-    if keyboard.all_pressed([KeyCode::Space, KeyCode::ShiftLeft]){
-        config.line_width -= 30. * time.delta_seconds();
-        if config.line_width < 1.0 {
-            config.line_width = 1.0;
-        }
-    }
-}
-
+/// Change the initial default settings of a Gizmo
 fn config_gizmo(
     mut config_store: ResMut<GizmoConfigStore>,
 ) {
@@ -285,24 +345,60 @@ fn config_gizmo(
     // might improve performance if this number was reduced or switched to a different mode
     config.line_joints = GizmoLineJoint::Miter;
     config.line_perspective = true; // for some reason this makes the line width affect it much much less
-    config.line_width = 200.;
-    // config.depth_bias = -0.2;
+    config.line_width = 80.;
+    config.depth_bias = -0.2;
+}
+
+/// Update the gizmo configuration on the fly
+fn update_gizmo_config(
+    mut config_store: ResMut<GizmoConfigStore>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+) {
+    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
+
+    let interval:f32 = 200.0;
+
+    if keyboard.pressed(KeyCode::Space) && !keyboard.pressed(KeyCode::ShiftLeft) {
+        config.line_width += interval * time.delta_seconds();
+    }
+
+    if keyboard.all_pressed([KeyCode::Space, KeyCode::ShiftLeft]){
+        config.line_width -= interval * time.delta_seconds();
+        if config.line_width < 1.0 {
+            config.line_width = 1.0;
+        }
+    }
 }
 
 //////////////////////////////////////////
+// TIME CONFIG CODE
 //////////////////////////////////////////
-//////////////////////////////////////////
 
+fn update_fixed_time(
+    mut time: ResMut<Time<Fixed>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+) {
+    let mut interval:f32 = 0.001;
 
+    if keyboard.pressed(KeyCode::ShiftLeft) {
+        interval = 0.0001;
+    }
 
-// https://wwwtyro.net/2019/11/18/instanced-lines.html
-// https://www.reddit.com/r/bevy/comments/1ciwzb1/is_it_bad_to_use_gizmos_in_the_game/
-// https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline
-// https://www.reddit.com/r/bevy/comments/1e04xk8/how_to_create_2d_object_from_arbitrary_list_of/
-// seems like you either use polyline or gizmos. giszmos seems performant enough even tho they are redrawn every frame
+    let mut timestep = time.timestep().as_secs_f32();
 
-// method one seems to be try gizmos? 
-// if that doesnt work, try primitives https://docs.rs/bevy/0.14.2/bevy/math/primitives/index.html
-// if that doesnt work try polyline
-// if that doesnt work, try custom meshes with maybe a custom shader
+    // speed up simulation
+    if keyboard.pressed(KeyCode::KeyF) {
+        timestep = (timestep - interval).clamp(0.0001, 0.5);
+        println!("timestep is {}", timestep);
+    }
+
+    // slow down simulation
+    if keyboard.pressed(KeyCode::KeyR) {
+        timestep = (timestep + interval).clamp(0.0001, 0.5);
+        println!("timestep is {}", timestep);
+    }
+
+    time.set_timestep(Duration::from_secs_f32(timestep));
+}
 
