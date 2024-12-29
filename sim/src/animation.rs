@@ -1,18 +1,32 @@
 use std::{f32::consts::PI, time::Duration};
 use bevy::{prelude::*, render::mesh::TorusMeshBuilder, time::common_conditions::repeating_after_delay};
-use crate::config::hypocycloid_config;
+use crate::config::{colors_config, hypocycloid_config};
 use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 
+#[derive(Reflect)]
+struct ColorControl {
+    override_enabled: bool,
+    override_color: Color,
+}
+
+impl Default for ColorControl{
+    fn default() -> Self {
+        Self {
+            override_enabled: false,
+            override_color: Color::WHITE,
+        }
+    }
+}
 
 /// A resource that will override the color of the hypocycloid 
-#[derive(Reflect,Resource, Default)]
+#[derive(Reflect, Resource, Default)]
 #[reflect(Resource)]
-struct OverrideColor {
-    /// Will override the color if true
-    overrode: bool,
-
-    /// The override color
-    override_color: Color,
+struct HypocycloidControls {
+    color : ColorControl,
+    inferior_color : ColorControl,
+    superior_color : ColorControl,
+    draw_inferior: bool,
+    draw_exterior: bool,
 }
 
 #[derive(Component)]
@@ -42,8 +56,21 @@ struct HypocycloidTracking {
     /// this stores the transform of the CENTER of the traceline
     trace_line_xform: Transform, 
 
+    /// distance from the center of the trace point to the inferior Hypotrchoid
+    /// This value should be negative as it should lie inside the circle.
+    inferior_radius: f32,
+
+    /// distance from the center of the trace point to the superior Hypotrchoid
+    /// This value should be positive as it should lie outside the circle
+    superior_radius: f32,
+
     /// struct to hold all previous positions
     trace_points: Vec<Vec3>, // could convert to drawing cylinders instead
+
+    /// struct to hold the forward axis of the trace line so that you can 
+    /// offset to get interior and exterior positions
+    /// slightly more memory efficient then storing hypo pos, inferior pos, and superior pos separately.
+    trace_point_forward_vecs:  Vec<Vec3>,
 }
 
 impl HypocycloidTracking {
@@ -59,19 +86,49 @@ impl HypocycloidTracking {
         let mut trace_line_xform = starting_xform;
         trace_line_xform.translation.x += -1.0*  (outer_rad - 0.5*inner_rad);
 
-
         HypocycloidTracking{
             outer_circle_xform: starting_xform,
             inner_circle_xform:  inner_circle_xform,
             trace_line_xform: trace_line_xform,
             trace_point_xform: trace_point_xform,
+            inferior_radius: hypocycloid_config::INFERIOR_RAD,
+            superior_radius: hypocycloid_config::SUPERIOR_RAD,
 
             trace_points: Vec::with_capacity(200_000),
+            trace_point_forward_vecs: Vec::with_capacity(200_000),
         }
     }
-
-    //provide the ID as a lookup to get the transform
 }
+
+// impl Default for HypocycloidTracking {
+//     fn default() -> Self {
+//         let inner_rad = 5.0;
+//         let outer_rad = inner_rad * 2.1;
+//         let starting_xform = Transform::from_translation(Vec3::ZERO);
+
+//         // minus x because currently the camera is looking at the origin from behind the x/y plane
+//         let mut inner_circle_xform = starting_xform;
+//         inner_circle_xform.translation.x += -1.0 * (outer_rad - inner_rad);
+
+//         let mut trace_point_xform = starting_xform;
+//         trace_point_xform.translation.x += -1.0* outer_rad;
+
+//         let mut trace_line_xform = starting_xform;
+//         trace_line_xform.translation.x += -1.0*  (outer_rad - 0.5*inner_rad);
+
+//         HypocycloidTracking{
+//             outer_circle_xform: starting_xform,
+//             inner_circle_xform: inner_circle_xform,
+//             trace_line_xform: trace_line_xform,
+//             trace_point_xform: trace_point_xform,
+//             inferior_radius: inner_rad - 1.0,
+//             superior_radius: inner_rad + 1.0,
+
+//             trace_points: Vec::with_capacity(200_000),
+//         }
+        
+//     }
+// }
 
 
 pub struct Hypocycloid;
@@ -82,9 +139,9 @@ impl Plugin for Hypocycloid {
         const FIXED_INTERVAL:f64 = 0.01;
 
         // https://github.com/jakobhellermann/bevy-inspector-egui/tree/v0.27.0
-        app.init_resource::<OverrideColor>();
-        app.register_type::<OverrideColor>();
-        app.add_plugins(ResourceInspectorPlugin::<OverrideColor>::default());
+        app.init_resource::<HypocycloidControls>();
+        app.register_type::<HypocycloidControls>();
+        app.add_plugins(ResourceInspectorPlugin::<HypocycloidControls>::default());
 
         // setup
         app.add_systems(Startup, config_gizmo);
@@ -95,6 +152,8 @@ impl Plugin for Hypocycloid {
         app.add_systems(FixedUpdate, Self::update_new_tracker.run_if(repeating_after_delay(Duration::from_secs_f32(START_DELAY))));
         app.add_systems(Update, update_fixed_time);
         app.add_systems(Update, Self::draw_new_track);
+        // app.add_systems(Update, Self::draw_superior);
+        app.add_systems(Update, Self::draw_interior);
         app.add_systems(Update, Self:: update_mesh_pos);
         app.add_systems(Update, Self::hide_meshes);
         
@@ -182,8 +241,8 @@ impl Hypocycloid {
         ));
 
         commands.spawn(hypocycloid);
-        commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
-        commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(-Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
+        // commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
+        // commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(-Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
 
     }
 
@@ -228,13 +287,16 @@ impl Hypocycloid {
     
             let final_point_trans = tracker.trace_point_xform.translation;
             tracker.trace_points.push(final_point_trans);
+            
+            let final_forward_vec: Vec3 = tracker.trace_line_xform.local_x().into();
+            tracker.trace_point_forward_vecs.push(final_forward_vec);
         }
     }
 
     /// Draw the new track using the points in `HypocycloidTracking`
     fn draw_new_track(
         tracker_query: Query<&HypocycloidTracking>,
-        color_override: Res<OverrideColor>,
+        controls: Res<HypocycloidControls>,
         mut draw : Gizmos,
     ) {
          // Different phases that could be used 
@@ -255,8 +317,8 @@ impl Hypocycloid {
                  let angle = (i as f32).to_radians() / 14.0;
      
                  // Check if the color is overridden
-                 if color_override.overrode {
-                     draw.line(points[i-1], points[i], color_override.override_color);
+                 if controls.color.override_enabled {
+                     draw.line(points[i-1], points[i], controls.color.override_color);
                      continue;
                  }
      
@@ -271,6 +333,42 @@ impl Hypocycloid {
                  ));
              }
          }
+    }
+
+    fn draw_interior(
+        tracker_query: Query<&HypocycloidTracking>,
+        controls: Res<HypocycloidControls>,
+        mut draw : Gizmos,
+    ) {
+        for tracker in tracker_query.iter(){
+            // know its local x based on the params used when building it
+            let points = &tracker.trace_points;
+            let forward_vecs = &tracker.trace_point_forward_vecs;
+
+            // both vectors must be of the same length
+            assert_eq!(points.len(), forward_vecs.len());
+
+            if points.len() == 0 {
+                continue;
+            }
+
+            let mut previous = points[0] + forward_vecs[0]*tracker.inferior_radius;
+            let mut current: Vec3;
+
+            for i in 1..points.len() {
+                // Check if the color is overridden
+                current = points[i] + forward_vecs[i]*tracker.inferior_radius;
+
+                if controls.inferior_color.override_enabled {
+                    draw.line(previous, current , controls.inferior_color.override_color);
+                }
+                else {
+                    draw.line(previous, current , colors_config::get_color("00FF00"));
+
+                }
+                previous = current;
+            }
+        }
     }
 
     fn hide_meshes(
