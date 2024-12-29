@@ -335,39 +335,53 @@ impl Hypocycloid {
          }
     }
 
+    fn draw_path_offset(
+        tracker: &HypocycloidTracking,
+        offset_radius: f32, 
+        color_control: &ColorControl,
+        draw: &mut Gizmos,
+    ) {
+        // know its local x based on the params used when building it
+        let points = &tracker.trace_points;
+        let forward_vecs = &tracker.trace_point_forward_vecs;
+
+        // both vectors must be of the same length
+        assert_eq!(points.len(), forward_vecs.len());
+
+        if points.len() == 0 {
+            return;
+        }
+
+        let mut previous = points[0] + forward_vecs[0]*offset_radius;
+        let mut current: Vec3;
+
+        for i in 1..points.len() {
+            // Check if the color is overridden
+            current = points[i] + forward_vecs[i]*offset_radius;
+
+            if color_control.override_enabled {
+                draw.line(previous, current , color_control.override_color);
+            }
+            else {
+                draw.line(previous, current , colors_config::get_color("00FF00"));
+
+            }
+            previous = current;
+        }
+    }
+
     fn draw_interior(
         tracker_query: Query<&HypocycloidTracking>,
         controls: Res<HypocycloidControls>,
         mut draw : Gizmos,
     ) {
-        for tracker in tracker_query.iter(){
-            // know its local x based on the params used when building it
-            let points = &tracker.trace_points;
-            let forward_vecs = &tracker.trace_point_forward_vecs;
-
-            // both vectors must be of the same length
-            assert_eq!(points.len(), forward_vecs.len());
-
-            if points.len() == 0 {
-                continue;
-            }
-
-            let mut previous = points[0] + forward_vecs[0]*tracker.inferior_radius;
-            let mut current: Vec3;
-
-            for i in 1..points.len() {
-                // Check if the color is overridden
-                current = points[i] + forward_vecs[i]*tracker.inferior_radius;
-
-                if controls.inferior_color.override_enabled {
-                    draw.line(previous, current , controls.inferior_color.override_color);
-                }
-                else {
-                    draw.line(previous, current , colors_config::get_color("00FF00"));
-
-                }
-                previous = current;
-            }
+        for tracker in tracker_query.iter() {
+            Self::draw_path_offset(
+                tracker,
+                tracker.inferior_radius, 
+                &controls.inferior_color, 
+                &mut draw
+            );
         }
     }
 
