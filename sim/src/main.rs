@@ -13,11 +13,11 @@ fn main() {
         // bevy's entire engine is written as plugins so maybe your stuff should be too?
         .add_plugins((
             DefaultPlugins,
-            WorldInspectorPlugin::new(),
+            // WorldInspectorPlugin::new(),
             LookTransformPlugin,
             UnrealCameraPlugin::default(),
             scene::CustomLightsPlugin,
-            scene::OriginPlugin,
+            // scene::OriginPlugin,
             scene::CustomCameraPlugin,
             animation:: Hypocycloid,
         ))

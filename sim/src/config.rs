@@ -20,11 +20,11 @@ pub mod lights_config {
     pub const GIZMOS_ON: bool = false;
 
     // Light 1
-    pub const POS_1: Vec3 = Vec3::splat(7.0);
+    pub const POS_1: Vec3 = Vec3::new(0.0,0.0,-50.0);
     pub const LOOKING_AT_1: Vec3 = Vec3::ZERO;
 
     //Light 2
-    pub const POS_2: Vec3 = Vec3::splat(-7.0);
+    pub const POS_2: Vec3 = Vec3::new(0.0,0.0,50.0);
     pub const LOOKING_AT_2: Vec3 = Vec3::ZERO;
 }
 
@@ -43,18 +43,21 @@ pub mod origin_config {
 
 pub mod cam_config {
     use bevy::math::Vec3;
-    pub const POS: Vec3 = Vec3::new(0.0, 0.0, -60.0);
+    pub const POS: Vec3 = Vec3::new(0.0, 0.0, -118.294);
     pub const LOOKING_AT: Vec3 = Vec3::ZERO;
 }
 
 pub mod hypocycloid_config {
+    use std::f32::consts::PI;
 
-    pub const INNER_RAD: f32 = 10.0;
-    pub const K:f32 = 31.0/12.3398748789;
-    pub const OUTER_RAD :f32= INNER_RAD*K;
+
+    pub const INNER_RAD: f32 = 7.0*PI;
+    pub const OUTER_RAD :f32= 33.456;
+    pub const K:f32 = OUTER_RAD / INNER_RAD;
     pub const CIRLCE_ROT_RATE: f32 = -0.05;
     pub const LINE_ROT_RATE: f32 = -CIRLCE_ROT_RATE*K;
-    pub const SUPERIOR_RAD: f32 = 4.0;
-    pub const INFERIOR_RAD: f32 = -4.0;
+    pub const SUPERIOR_RAD: f32 = 8.45;
+    pub const INFERIOR_RAD: f32 = -5.34;
+
 
 }

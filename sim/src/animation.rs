@@ -135,13 +135,13 @@ pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
     fn build(&self, app: &mut App) {
 
-        const START_DELAY: f32 = 2.0;
-        const FIXED_INTERVAL:f64 = 0.01;
+        const START_DELAY: f32 = 5.0;
+        const FIXED_INTERVAL:f64 = 0.02;
 
         // https://github.com/jakobhellermann/bevy-inspector-egui/tree/v0.27.0
         app.init_resource::<HypocycloidControls>();
-        app.register_type::<HypocycloidControls>();
-        app.add_plugins(ResourceInspectorPlugin::<HypocycloidControls>::default());
+        // app.register_type::<HypocycloidControls>();
+        // app.add_plugins(ResourceInspectorPlugin::<HypocycloidControls>::default());
 
         // setup
         app.add_systems(Startup, config_gizmo);
@@ -152,13 +152,13 @@ impl Plugin for Hypocycloid {
         app.add_systems(FixedUpdate, Self::update_new_tracker.run_if(repeating_after_delay(Duration::from_secs_f32(START_DELAY))));
         app.add_systems(Update, update_fixed_time);
         app.add_systems(Update, Self::draw_new_track);
-        // app.add_systems(Update, Self::draw_superior);
+        app.add_systems(Update, Self::draw_superior);
         app.add_systems(Update, Self::draw_interior);
         app.add_systems(Update, Self:: update_mesh_pos);
         app.add_systems(Update, Self::hide_meshes);
         
         // Axes gizmos and gizmo config
-        app.add_systems(Update, Self::draw_gizmos);
+        // app.add_systems(Update, Self::draw_gizmos);
         app.add_systems(Update, update_gizmo_config);
 
     }
@@ -288,8 +288,9 @@ impl Hypocycloid {
             let final_point_trans = tracker.trace_point_xform.translation;
             tracker.trace_points.push(final_point_trans);
             
+            // because x axis actually points to the center of the circle, we need to invert it
             let final_forward_vec: Vec3 = tracker.trace_line_xform.local_x().into();
-            tracker.trace_point_forward_vecs.push(final_forward_vec);
+            tracker.trace_point_forward_vecs.push(-1.0*final_forward_vec);
         }
     }
 
@@ -312,6 +313,7 @@ impl Hypocycloid {
                 println!("len points is {}", len_points);
             }
             // println!("{len_points}");
+            let color =  colors_config::get_color("E7FBB4");
              for i in 1..len_points {
                  // Get the angle and scale down so less repetition
                  let angle = (i as f32).to_radians() / 14.0;
@@ -325,14 +327,47 @@ impl Hypocycloid {
                  // draw the line with the color
                  // use desmos to plot the rgb lines with the amp and offset and phase angle to
                  // see roughly what your color pattern will look like.
-                 draw.line(points[i-1], points[i], Color::srgba(
-                     f32::sin(angle + a60) *0.5+0.5, 
-                     f32::sin(angle + a180)*0.5 + 0.5, 
-                     f32::sin(angle)*0.5+0.5,
-                     1.0
-                 ));
+                //  draw.line(points[i-1], points[i], Color::srgba(
+                //      f32::sin(angle + a60) *0.5+0.5, 
+                //      f32::sin(angle + a180)*0.5 + 0.5, 
+                //      f32::sin(angle)*0.5+0.5,
+                //      1.0
+                //  ));
+                draw.line(points[i-1], points[i], color);
              }
          }
+    }
+
+    fn draw_superior(
+        tracker_query: Query<&HypocycloidTracking>,
+        controls: Res<HypocycloidControls>,
+        mut draw : Gizmos,
+    ) {
+        for tracker in tracker_query.iter() {
+            Self::draw_path_offset(
+                tracker,
+                tracker.superior_radius, 
+                &controls.superior_color, 
+                &mut draw,
+                colors_config::get_color("638C6D")
+            );
+        }
+    }
+
+    fn draw_interior(
+        tracker_query: Query<&HypocycloidTracking>,
+        controls: Res<HypocycloidControls>,
+        mut draw : Gizmos,
+    ) {
+        for tracker in tracker_query.iter() {
+            Self::draw_path_offset(
+                tracker,
+                tracker.inferior_radius, 
+                &controls.inferior_color, 
+                &mut draw,
+                colors_config::get_color("DF6D2D")
+            );
+        }
     }
 
     fn draw_path_offset(
@@ -340,6 +375,7 @@ impl Hypocycloid {
         offset_radius: f32, 
         color_control: &ColorControl,
         draw: &mut Gizmos,
+        static_color: Color
     ) {
         // know its local x based on the params used when building it
         let points = &tracker.trace_points;
@@ -363,27 +399,14 @@ impl Hypocycloid {
                 draw.line(previous, current , color_control.override_color);
             }
             else {
-                draw.line(previous, current , colors_config::get_color("00FF00"));
+                draw.line(previous, current , static_color );
 
             }
             previous = current;
         }
     }
 
-    fn draw_interior(
-        tracker_query: Query<&HypocycloidTracking>,
-        controls: Res<HypocycloidControls>,
-        mut draw : Gizmos,
-    ) {
-        for tracker in tracker_query.iter() {
-            Self::draw_path_offset(
-                tracker,
-                tracker.inferior_radius, 
-                &controls.inferior_color, 
-                &mut draw
-            );
-        }
-    }
+
 
     fn hide_meshes(
         keyboard: Res<ButtonInput<KeyCode>>,
@@ -469,7 +492,8 @@ fn update_gizmo_config(
 ) {
     let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
 
-    let interval:f32 = 200.0;
+    let interval:f32 = 50.0;
+
 
     if keyboard.pressed(KeyCode::Space) && !keyboard.pressed(KeyCode::ShiftLeft) {
         config.line_width += interval * time.delta_seconds();
@@ -477,8 +501,8 @@ fn update_gizmo_config(
 
     if keyboard.all_pressed([KeyCode::Space, KeyCode::ShiftLeft]){
         config.line_width -= interval * time.delta_seconds();
-        if config.line_width < 1.0 {
-            config.line_width = 1.0;
+        if config.line_width < 2.0 {
+            config.line_width = 2.0;
         }
     }
 }
@@ -501,13 +525,13 @@ fn update_fixed_time(
 
     // speed up simulation
     if keyboard.pressed(KeyCode::KeyF) {
-        timestep = (timestep - interval).clamp(0.0001, 0.5);
+        timestep = (timestep - interval).clamp(0.0003, 0.5);
         println!("timestep is {}", timestep);
     }
 
     // slow down simulation
     if keyboard.pressed(KeyCode::KeyR) {
-        timestep = (timestep + interval).clamp(0.0001, 0.5);
+        timestep = (timestep + interval).clamp(0.0003, 0.5);
         println!("timestep is {}", timestep);
     }
 
