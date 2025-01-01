@@ -1,5 +1,5 @@
 use std::{f32::consts::PI, time::Duration};
-use bevy::{prelude::*, render::mesh::TorusMeshBuilder, time::common_conditions::repeating_after_delay};
+use bevy::{input::{common_conditions::input_just_pressed, keyboard::Key}, prelude::*, render::mesh::TorusMeshBuilder, time::common_conditions::repeating_after_delay};
 use crate::config::{colors_config, hypocycloid_config};
 use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 
@@ -38,6 +38,8 @@ struct TraceLine;
 #[derive(Component, Debug)]
 struct TracePoint;
 
+#[derive(Component, Debug)]
+struct CenterOfMassTracker;
 
 #[derive(Component, Debug)]
 struct HypocycloidTracking {
@@ -66,6 +68,12 @@ struct HypocycloidTracking {
 
     /// struct to hold all previous positions
     trace_points: Vec<Vec3>, // could convert to drawing cylinders instead
+
+    /// average of all the trace points
+    trace_points_avg: Transform,
+
+    /// trace points accumulator used for computing the average
+    trace_points_accumulator: Vec3,
 
     /// struct to hold the forward axis of the trace line so that you can 
     /// offset to get interior and exterior positions
@@ -96,7 +104,17 @@ impl HypocycloidTracking {
 
             trace_points: Vec::with_capacity(200_000),
             trace_point_forward_vecs: Vec::with_capacity(200_000),
+
+            trace_points_avg: Transform::from_translation(Vec3::ZERO),
+            trace_points_accumulator: Vec3::ZERO,
         }
+    }
+
+    fn reset_trace_data(&mut self){
+        self.trace_point_forward_vecs.clear();
+        self.trace_points.clear();
+        self.trace_points_accumulator = Vec3::ZERO;
+        self.trace_points_avg= Transform::from_translation(Vec3::ZERO);
     }
 }
 
@@ -135,7 +153,7 @@ pub struct Hypocycloid;
 impl Plugin for Hypocycloid {
     fn build(&self, app: &mut App) {
 
-        const START_DELAY: f32 = 5.0;
+        const START_DELAY: f32 = 4.0;
         const FIXED_INTERVAL:f64 = 0.02;
 
         // https://github.com/jakobhellermann/bevy-inspector-egui/tree/v0.27.0
@@ -156,6 +174,8 @@ impl Plugin for Hypocycloid {
         app.add_systems(Update, Self::draw_interior);
         app.add_systems(Update, Self:: update_mesh_pos);
         app.add_systems(Update, Self::hide_meshes);
+        app.add_systems(Update,Self::rotate_around_center); // camera
+        app.add_systems(Update, Self::reset.run_if(Self::reset_conditions_true));
         
         // Axes gizmos and gizmo config
         // app.add_systems(Update, Self::draw_gizmos);
@@ -240,6 +260,15 @@ impl Hypocycloid {
             TracePoint
         ));
 
+        commands.spawn((
+            PbrBundle {
+                mesh: meshes.add(Sphere{ radius: 2.0}),
+                transform: Transform::from_translation(Vec3::ZERO),
+                ..default()
+            },
+            CenterOfMassTracker
+        ));
+
         commands.spawn(hypocycloid);
         // commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
         // commands.spawn(HypocycloidTracking::new(inner_circle_radius,outer_circle_radius, Transform::from_translation(-Vec3::Z*10.0). with_rotation(Quat::from_rotation_x(PI/2.0))));
@@ -262,16 +291,24 @@ impl Hypocycloid {
     /// update the position of the tracer using the new tracking system
     fn update_new_tracker(
         mut tracker_query: Query<&mut HypocycloidTracking>,
+        time : ResMut<Time>
 
     ){
-        for mut tracker in tracker_query.iter_mut() {
+        for mut tracker in tracker_query.iter_mut() {   
             // rotate the inner circle and all connected components along the outer circle track
             // this is not rotating the inner circle itself yet
             let hypocycloid_origin = tracker.outer_circle_xform.translation;
-            let angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(), hypocycloid_config::CIRLCE_ROT_RATE);
-            tracker.inner_circle_xform.rotate_around(hypocycloid_origin, angle);
-            tracker.trace_point_xform.rotate_around(hypocycloid_origin, angle);
-            tracker.trace_line_xform.rotate_around(hypocycloid_origin, angle);
+
+            let rot = Quat::from_euler(EulerRot::YXZ, hypocycloid_config::CIRLCE_ROT_RATE, 0.023483, 0.04333);
+            // let mut angle = Quat::from_axis_angle(tracker.inner_circle_xform.local_y().into(), hypocycloid_config::CIRLCE_ROT_RATE);
+    
+            tracker.inner_circle_xform.rotate_around(hypocycloid_origin, rot);
+            tracker.trace_point_xform.rotate_around(hypocycloid_origin, rot);
+            tracker.trace_line_xform.rotate_around(hypocycloid_origin, rot);
+
+            // tracker.inner_circle_xform.translation.x = 20.0 * f32::sin(time.elapsed_seconds());
+            // tracker.trace_point_xform.translation.x = 20.0 * f32::sin(time.elapsed_seconds());
+            // tracker.trace_line_xform.translation.x = 20.0 * f32::sin(time.elapsed_seconds());
     
             // rotate the traceline and all connected components
             // TODO: I should technically be rotating the inner circle as well but because its a circle
@@ -285,8 +322,13 @@ impl Hypocycloid {
             tracker.trace_point_xform.rotation = tracker.trace_point_xform.rotation.normalize();
             tracker.trace_line_xform.rotation = tracker.trace_line_xform.rotation.normalize();
     
+            // add the final position
             let final_point_trans = tracker.trace_point_xform.translation;
             tracker.trace_points.push(final_point_trans);
+
+            // calculate the running average of points
+            tracker.trace_points_accumulator += final_point_trans;
+            tracker.trace_points_avg = Transform::from_translation(tracker.trace_points_accumulator / tracker.trace_points.len() as f32);
             
             // because x axis actually points to the center of the circle, we need to invert it
             let final_forward_vec: Vec3 = tracker.trace_line_xform.local_x().into();
@@ -410,7 +452,7 @@ impl Hypocycloid {
 
     fn hide_meshes(
         keyboard: Res<ButtonInput<KeyCode>>,
-        mut vis_query: Query<&mut Visibility, Or<(With<RollingCircle>, With<TracePoint>,With<TraceLine>,With<OuterCircle>)>>,
+        mut vis_query: Query<&mut Visibility, Or<(With<RollingCircle>, With<TracePoint>,With<TraceLine>,With<OuterCircle>, With<CenterOfMassTracker>)>>,
     ) 
     {
         if keyboard.just_pressed(KeyCode::KeyH) {
@@ -443,7 +485,8 @@ impl Hypocycloid {
             Query<&mut Transform, With<RollingCircle>>,
             Query<&mut Transform, With<TracePoint>>,
             Query<&mut Transform, With<TraceLine>>,
-            Query<&mut Transform, With<OuterCircle>>
+            Query<&mut Transform, With<OuterCircle>>,
+            Query<&mut Transform, With<CenterOfMassTracker>>,
         )>,
         tracker_query: Query<&HypocycloidTracking>,        
     ){
@@ -463,7 +506,54 @@ impl Hypocycloid {
             let mut param = set.p3();
             let mut obj = param.single_mut();
             *obj = tracker.outer_circle_xform;
+
+            let mut param = set.p4();
+            let mut obj = param.single_mut();
+            *obj = tracker.trace_points_avg;
+        
         }
+    }
+
+    fn rotate_around_center(
+        center: Query<&HypocycloidTracking>,
+        mut camera: Query<&mut Transform, With<Camera>>,
+        time: Res<Time>,
+        keyboard: Res<ButtonInput<KeyCode>>,
+    ){
+        // MUST UNLOCK THE CAMERA FOR IT TO WORK
+        for center in center.iter() {
+            // there is only one center tracker spawned, so
+            // only set it for the first one and then break;
+            let mut camera = camera.single_mut();
+            
+            let secondary_axis_rot_rate = 0.09* time.delta_seconds();
+            let primary_axis_rot_rate = 0.3 * time.delta_seconds();
+
+            if keyboard.pressed(KeyCode::ArrowRight) {
+                let rot = Quat::from_euler(EulerRot::YXZ, primary_axis_rot_rate, secondary_axis_rot_rate, secondary_axis_rot_rate);
+                camera.rotate_around(center.trace_points_avg.translation, rot);
+            }
+            if keyboard.pressed(KeyCode::ArrowLeft) {
+                let rot = Quat::from_euler(EulerRot::YXZ, -primary_axis_rot_rate, -secondary_axis_rot_rate, -secondary_axis_rot_rate);
+                camera.rotate_around(center.trace_points_avg.translation, rot);
+            }
+            
+            break;
+        }
+    }
+
+    fn reset(
+        mut query: Query<&mut HypocycloidTracking>,
+    ) {
+        for mut tracker in query.iter_mut() {
+            tracker.reset_trace_data();
+        }
+    }
+
+    fn reset_conditions_true(
+        keyboard: Res<ButtonInput<KeyCode>>,
+    ) -> bool {
+        keyboard.all_pressed([KeyCode::ControlLeft, KeyCode::KeyR])
     }
 }
 

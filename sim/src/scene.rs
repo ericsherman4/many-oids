@@ -71,13 +71,13 @@ impl CustomLightsPlugin {
         }
 
         // this does not belong here but I am being lazy
-        commands.spawn(
-            PbrBundle {
-                mesh: meshes.add(Plane3d { half_size: Vec2::new(200.0, 200.0), normal: Dir3::NEG_Z}),
-                material: materials.add(colors_config::get_color("1f1f1f")),
-                ..default()
-            }
-        );
+        // commands.spawn(
+        //     PbrBundle {
+        //         mesh: meshes.add(Plane3d { half_size: Vec2::new(200.0, 200.0), normal: Dir3::NEG_Z}),
+        //         material: materials.add(colors_config::get_color("1f1f1f")),
+        //         ..default()
+        //     }
+        // );
     }
 
     fn animate_light_radius(
@@ -218,10 +218,12 @@ impl Plugin for CustomCameraPlugin {
         app.insert_resource(CameraAnimState {state: 0});
         app.add_systems(Startup, Self::create_camera);
         app.add_systems(Update, Self::lock_camera.run_if(input_just_pressed(KeyCode::KeyL)));
-        app.add_systems(Update, Self::animate_camera);
+        // app.add_systems(Update, Self::animate_camera);
+        
 
     }
 }
+
 
 
 impl CustomCameraPlugin {
@@ -244,7 +246,12 @@ impl CustomCameraPlugin {
         };
 
         let unreal_camera = UnrealCameraBundle::new(
-            UnrealCameraController::default(),
+            UnrealCameraController {
+                // settings for 60 fps monitor
+                // smoothing_weight : 0.99,
+                // rotate_sensitivity: Vec2::splat(0.015),
+                ..default()
+            },
             STARTING_CAM_POS,
             Vec3::new(0., 0., 0.),
             Vec3::Y,
@@ -285,5 +292,7 @@ impl CustomCameraPlugin {
         }
        
     }
+
+
 
 }
